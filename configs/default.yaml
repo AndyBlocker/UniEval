@@ -1,0 +1,29 @@
+# UniEval Default Configuration
+
+model_name: vit_small
+num_classes: 1000
+global_pool: true
+device: cuda
+checkpoint_path: null
+
+quant:
+  level: 16
+  weight_bit: 32
+  sym: true
+  is_softmax: true
+
+conversion:
+  neuron_type: ST-BIF
+  level: 16
+  time_step: 64
+  encoding_type: analog
+  is_softmax: true
+
+energy:
+  e_mac: 4.6    # pJ per MAC
+  e_ac: 0.9     # pJ per AC
+  nspks_max: 2
+
+evaluation:
+  num_batches: 5
+  topk: [1, 5]

@@ -1,0 +1,52 @@
+"""Base quantizer ABC and QuantPlacementRule system."""
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+import torch.nn as nn
+
+
+@dataclass
+class QuantPlacementRule:
+    """A rule for placing quantization modules in the model tree.
+
+    Args:
+        name: Human-readable rule name.
+        match_fn: (name, module, parent) -> bool, duck-typed matching.
+        apply_fn: (name, module, parent, level, is_softmax) -> None, in-place modification.
+    """
+    name: str
+    match_fn: Callable
+    apply_fn: Callable
+
+
+class BaseQuantizer(ABC):
+    """Abstract base class for quantizers.
+
+    Subclasses must implement quantize_model() which takes a model
+    and applies quantization in-place.
+    """
+
+    @abstractmethod
+    def quantize_model(self, model: nn.Module) -> nn.Module:
+        """Apply quantization to the model in-place and return it."""
+        ...
+
+    def _apply_rules(self, model, rules, **kwargs):
+        """Recursively apply placement rules to the model tree.
+
+        Traverses the module tree. For each (name, child), iterates rules
+        in order. First match wins: apply_fn is called and recursion stops
+        for that child.
+        """
+        children = list(model.named_children())
+        for name, child in children:
+            matched = False
+            for rule in rules:
+                if rule.match_fn(name, child, model):
+                    rule.apply_fn(name, child, model, **kwargs)
+                    matched = True
+                    break
+            if not matched:
+                self._apply_rules(child, rules, **kwargs)

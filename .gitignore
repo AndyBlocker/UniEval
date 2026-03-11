@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+
+# Data
+data/
+datasets/
+
+# Logs
+*.log
+wandb/
+runs/
+
+# Claude Code local config (do not upload)
+CLAUDE.md
+AGENTS.md
+.claude/
