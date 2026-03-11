@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from .spike_utils import spike_rate
 from ..operators.neurons import IFNeuron
 from ..quantization.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
+from ..models.vit import Attention
 from ..registry import OPS_HOOK_REGISTRY
 
 
@@ -200,6 +201,7 @@ def _build_default_modules_mapping():
         nn.ConvTranspose2d: conv_syops_counter_hook,
         nn.ConvTranspose3d: conv_syops_counter_hook,
         nn.MultiheadAttention: multihead_attention_counter_hook,
+        Attention: multihead_attention_counter_hook,
         QAttention: multihead_attention_counter_hook,
     }
     if hasattr(nn, "GELU"):

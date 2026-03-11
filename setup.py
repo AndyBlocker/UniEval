@@ -9,7 +9,6 @@ setup(
     install_requires=[
         "torch>=1.10",
         "torchvision",
-        "timm==0.3.2",
         "numpy",
         "scipy",
         "pyyaml",
