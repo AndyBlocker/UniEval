@@ -24,8 +24,13 @@ Requirements:
     - numpy, scipy
 """
 
+import os
 import sys
 import traceback
+
+# Add project root to sys.path so `import unieval` works
+# regardless of where the script is invoked from.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 PASS = 0
 FAIL = 0
