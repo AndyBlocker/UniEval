@@ -4,25 +4,17 @@ import torch
 import torch.nn as nn
 from copy import deepcopy
 
-from ..operators.neurons import IFNeuron, ORIIFNeuron
-from ..operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
-from ..operators.attention import SAttention
-from ..quantization.lsq import QAttention
+from ..operators.base import SNNOperator
+from ..operators.layers import LLLinear
 from .converter import SNNConverter
-from .rules import DEFAULT_CONVERSION_RULES
+from .adapter import ADAPTER_REGISTRY
 
 
 def reset_model(model):
-    """Recursively reset all SNN operator states in the model."""
-    children = list(model.named_children())
-    for name, child in children:
-        is_need = False
-        if isinstance(child, (IFNeuron, LLConv2d, LLLinear, SAttention,
-                              Spiking_LayerNorm, ORIIFNeuron)):
-            model._modules[name].reset()
-            is_need = True
-        if not is_need:
-            reset_model(child)
+    """Reset all SNN operator states in the model via flat traversal."""
+    for module in model.modules():
+        if isinstance(module, SNNOperator):
+            module.reset()
 
 
 def attn_convert(QAttn, SAttn, level, neuron_type):
@@ -93,25 +85,29 @@ def attn_convert(QAttn, SAttn, level, neuron_type):
 
 
 class Judger:
-    """Determines when SNN inference is complete by checking is_work flags.
+    """Determines when SNN inference is complete.
 
-    Tracks whether all neurons and layers have stabilized (is_work == False).
+    Uses pre-cached module lists and attribute-driven checking via
+    SNNOperator.participates_in_early_stop and SNNOperator.working.
     """
 
-    def __init__(self):
+    def __init__(self, model):
         self.network_finish = True
+        self._early_stop_ops = [
+            m for m in model.modules()
+            if isinstance(m, SNNOperator) and m.participates_in_early_stop
+        ]
 
-    def judge_finish(self, model):
-        children = list(model.named_children())
-        for name, child in children:
-            is_need = False
-            if isinstance(child, (IFNeuron, LLLinear, LLConv2d)):
-                self.network_finish = (
-                    self.network_finish and (not model._modules[name].is_work)
-                )
-                is_need = True
-            if not is_need:
-                self.judge_finish(child)
+    def judge_finish(self):
+        """Check if all early-stop operators have converged."""
+        self.network_finish = all(
+            not op.working for op in self._early_stop_ops
+        )
+
+    def should_stop(self):
+        """Returns True if inference should stop (all operators converged)."""
+        self.judge_finish()
+        return self.network_finish
 
     def reset_network_finish_flag(self):
         self.network_finish = True
@@ -128,11 +124,14 @@ def get_subtensors(tensor, sample_grain=255):
 class SNNWrapper(nn.Module):
     """Wraps a quantized ANN model for temporal SNN inference.
 
-    Handles:
-    - ANN-to-SNN conversion via SNNConverter
-    - Temporal inference loop with rate/analog encoding
-    - Early termination via Judger
-    - ViT-specific pos_embed/cls_token handling
+    Provides three levels of API:
+    - run_auto(x): High-level, auto encoding + Judger early stop
+    - step_encoded(x_t): Low-level primitive, single step on pre-encoded input
+    - forward_encoded(x_seq): Low-level, multi-step on pre-encoded sequence
+    - forward(x): Legacy API, equivalent to run_auto
+
+    Also provides:
+    - encode_sequence(x, T): Convert raw input to explicit temporal sequence
 
     Args:
         ann_model: The quantized ANN model to convert.
@@ -140,9 +139,10 @@ class SNNWrapper(nn.Module):
         encoding_type: "rate" or "analog".
         level: Quantization level.
         neuron_type: Neuron type string.
-        model_name: Model name (used for ViT detection).
+        model_name: Model name (used for adapter selection).
         is_softmax: Whether attention uses softmax.
         converter: Optional SNNConverter instance.
+        adapter_name: Execution adapter name (default: auto-detect from model_name).
     """
 
     def __init__(
@@ -155,10 +155,10 @@ class SNNWrapper(nn.Module):
         model_name="vit",
         is_softmax=True,
         converter=None,
+        adapter_name=None,
     ):
         super().__init__()
         self.T = time_step
-        self.finish_judger = Judger()
         self.Encoding_type = encoding_type
         self.level = level
         self.neuron_type = neuron_type
@@ -166,11 +166,12 @@ class SNNWrapper(nn.Module):
         self.model_name = model_name
         self.is_softmax = is_softmax
         self.max_T = 0
+        self._current_t = 0
 
         # Save ViT embeddings before conversion
-        if "vit" in self.model_name:
-            self.pos_embed = deepcopy(self.model.pos_embed.data)
-            self.cls_token = deepcopy(self.model.cls_token.data)
+        if "vit" in self.model_name or "deit" in self.model_name:
+            self._saved_pos_embed = deepcopy(self.model.pos_embed.data)
+            self._saved_cls_token = deepcopy(self.model.cls_token.data)
 
         # Convert using rule-based converter
         conv = converter or SNNConverter()
@@ -181,75 +182,172 @@ class SNNWrapper(nn.Module):
             is_softmax=self.is_softmax,
         )
 
+        # Initialize adapter
+        if adapter_name is None:
+            adapter_name = self._detect_adapter_name()
+        self._init_adapter(adapter_name)
+
+        # Initialize Judger (after conversion, so all SNN ops exist)
+        self.finish_judger = Judger(self.model)
+
+    def _detect_adapter_name(self):
+        """Auto-detect adapter based on model_name."""
+        for prefix in ("vit", "deit", "swin"):
+            if prefix in self.model_name.lower():
+                return prefix
+        return "default"
+
+    def _init_adapter(self, adapter_name):
+        """Initialize the execution adapter."""
+        if adapter_name in ("vit", "deit"):
+            adapter_cls = ADAPTER_REGISTRY.get(adapter_name)
+            self.adapter = adapter_cls(
+                pos_embed=self._saved_pos_embed,
+                cls_token=self._saved_cls_token,
+            )
+        elif adapter_name in ADAPTER_REGISTRY:
+            adapter_cls = ADAPTER_REGISTRY.get(adapter_name)
+            self.adapter = adapter_cls()
+        else:
+            adapter_cls = ADAPTER_REGISTRY.get("default")
+            self.adapter = adapter_cls()
+
+    # ----------------------------------------------------------------
+    # State management
+    # ----------------------------------------------------------------
+
     def reset(self):
         """Reset model state for new sample."""
-        if "vit" in self.model_name:
-            self.model.pos_embed.data = deepcopy(self.pos_embed).cuda()
-            self.model.cls_token.data = deepcopy(self.cls_token).cuda()
-        reset_model(self)
+        reset_model(self.model)
+        self._current_t = 0
 
-    def forward(self, x, verbose=False):
+    # ----------------------------------------------------------------
+    # Encoding
+    # ----------------------------------------------------------------
+
+    def encode_sequence(self, x, T, encoding_type=None):
+        """Convert raw input to explicit temporal sequence.
+
+        Args:
+            x: Raw input tensor [B, ...].
+            T: Number of timesteps.
+            encoding_type: "analog" or "rate". Defaults to self.Encoding_type.
+
+        Returns:
+            x_seq: [T, B, ...] temporal sequence.
+        """
+        enc = encoding_type or self.Encoding_type
+        if enc == "analog":
+            x_seq = torch.zeros(T, *x.shape, device=x.device, dtype=x.dtype)
+            x_seq[0] = x
+            return x_seq
+        elif enc == "rate":
+            return get_subtensors(x, sample_grain=T)
+        else:
+            raise ValueError(f"Unknown encoding type: {enc}")
+
+    # ----------------------------------------------------------------
+    # Core low-level primitives
+    # ----------------------------------------------------------------
+
+    def step_encoded(self, x_t):
+        """Process a single pre-encoded timestep.
+
+        Does NOT do encoding or early-stop checking.
+        User controls the loop, encoding, accumulation, and stopping.
+
+        Args:
+            x_t: Pre-encoded input for this timestep [B, ...].
+
+        Returns:
+            Differential output for this timestep [B, ...].
+        """
+        output = self.adapter.step(self.model, x_t, self._current_t)
+        self._current_t += 1
+        return output
+
+    def forward_encoded(self, x_seq):
+        """Process an explicit pre-encoded sequence.
+
+        Uses adapter's multistep path if available.
+        Returns per-step differential outputs; user sums to get final.
+
+        Args:
+            x_seq: [T, B, ...] pre-encoded temporal sequence.
+
+        Returns:
+            output_seq: [T, B, ...] differential outputs per step.
+        """
+        output_seq = self.adapter.forward_multistep(self.model, x_seq)
+        self._current_t += x_seq.shape[0]
+        return output_seq
+
+    # ----------------------------------------------------------------
+    # High-level convenience API
+    # ----------------------------------------------------------------
+
+    def run_auto(self, x, verbose=False):
+        """Auto encoding + Judger early stop.
+
+        Equivalent to the original forward() behavior.
+
+        Args:
+            x: Raw input tensor [B, ...].
+            verbose: If True, return per-timestep accumulations.
+
+        Returns:
+            (accu, actual_T) or (accu, actual_T, accu_per_timestep) if verbose.
+        """
+        self.reset()
         accu = None
-        count1 = 0
+        count = 0
         accu_per_timestep = []
 
         if self.Encoding_type == "rate":
-            x = get_subtensors(x, sample_grain=self.level)
+            x_seq = self.encode_sequence(x, T=self.level)
 
         while True:
-            self.finish_judger.reset_network_finish_flag()
-            self.finish_judger.judge_finish(self)
-            network_finish = self.finish_judger.network_finish
-
-            if (count1 > 0 and network_finish) or count1 >= self.T:
-                self.max_T = max(count1, self.max_T)
+            if count > 0 and self.finish_judger.should_stop():
+                self.max_T = max(count, self.max_T)
                 break
-
-            # Zero pos_embed/cls_token after first timestep for ViT
-            if "vit" in self.model_name and count1 > 0:
-                self.model.pos_embed = nn.Parameter(
-                    torch.zeros(
-                        1,
-                        self.model.patch_embed.num_patches + 1,
-                        self.model.embed_dim,
-                    ).to(x.device if torch.is_tensor(x) else "cuda")
-                )
-                self.model.cls_token = nn.Parameter(
-                    torch.zeros(1, 1, self.model.embed_dim).to(
-                        x.device if torch.is_tensor(x) else "cuda"
-                    )
-                )
+            if count >= self.T:
+                self.max_T = max(count, self.max_T)
+                break
 
             # Prepare input for this timestep
             if self.Encoding_type == "rate":
-                if count1 < x.shape[0]:
-                    input_t = x[count1]
+                if count < x_seq.shape[0]:
+                    input_t = x_seq[count]
                 else:
-                    input_t = torch.zeros(x[0].shape).to(x.device)
+                    input_t = torch.zeros_like(x_seq[0])
             else:  # analog
-                if count1 == 0:
+                if count == 0:
                     input_t = x
                 else:
-                    input_t = torch.zeros(x.shape).to(x.device)
+                    input_t = torch.zeros_like(x)
 
-            output = self.model(input_t)
+            output = self.step_encoded(input_t)
 
-            if count1 == 0:
-                accu = output + 0.0
+            if count == 0:
+                accu = output.clone()
             else:
                 accu = accu + output
 
             if verbose:
                 accu_per_timestep.append(accu.clone())
 
-            count1 += 1
-            if count1 % 100 == 0:
-                print(count1)
+            count += 1
+            if count % 100 == 0:
+                print(count)
 
-        print(f"\nTime Step: {count1}")
+        print(f"\nTime Step: {count}")
 
         if verbose:
             accu_per_timestep = torch.stack(accu_per_timestep, dim=0)
-            return accu, count1, accu_per_timestep
+            return accu, count, accu_per_timestep
         else:
-            return accu, count1
+            return accu, count
+
+    def forward(self, x, verbose=False):
+        """Legacy API: equivalent to run_auto with auto-reset."""
+        return self.run_auto(x, verbose=verbose)

@@ -24,6 +24,8 @@ def multi1(x1_t, x2_t, x1_sum_t, x2_sum_t):
 class spiking_softmax(nn.Module, SNNOperator):
     """Spiking softmax: accumulates input and outputs differential softmax."""
 
+    participates_in_early_stop = False
+
     def __init__(self):
         super().__init__()
         self.X = 0.0
@@ -39,6 +41,26 @@ class spiking_softmax(nn.Module, SNNOperator):
         Y_pre = deepcopy(self.Y_pre)
         self.Y_pre = Y
         return Y - Y_pre
+
+    def forward_multistep(self, x_seq):
+        """Vectorized multi-step: cumsum + softmax + diff.
+
+        Args:
+            x_seq: [T, B, H, N, N]
+        Returns:
+            output: [T, B, H, N, N]
+        """
+        X_cum = x_seq.cumsum(dim=0) + self.X
+        Y = F.softmax(X_cum, dim=-1)
+        if torch.is_tensor(self.Y_pre):
+            Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
+        else:
+            Y_prev = torch.zeros_like(Y[:1])
+        Y_shifted = torch.cat([Y_prev, Y[:-1]], dim=0)
+        output = Y - Y_shifted
+        self.X = X_cum[-1]
+        self.Y_pre = Y[-1]
+        return output
 
 
 class SAttention(nn.Module, SNNOperator):
@@ -57,6 +79,8 @@ class SAttention(nn.Module, SNNOperator):
         level: Quantization level.
         is_softmax: Whether to use spiking softmax.
     """
+
+    participates_in_early_stop = False
 
     def __init__(
         self,

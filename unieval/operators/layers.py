@@ -164,6 +164,8 @@ class Spiking_LayerNorm(nn.Module, SNNOperator):
         dim: Normalized shape dimension.
     """
 
+    participates_in_early_stop = False
+
     def __init__(self, dim):
         super().__init__()
         self.layernorm = nn.LayerNorm(dim)
@@ -184,6 +186,26 @@ class Spiking_LayerNorm(nn.Module, SNNOperator):
         self.Y_pre = Y
         return Y - Y_pre
 
+    def forward_multistep(self, x_seq):
+        """Vectorized multi-step: cumsum + layernorm + diff.
+
+        Args:
+            x_seq: [T, B, N, D]
+        Returns:
+            output: [T, B, N, D]
+        """
+        X_cum = x_seq.cumsum(dim=0) + self.X
+        Y = self.layernorm(X_cum)
+        if self.Y_pre is not None:
+            Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
+        else:
+            Y_prev = torch.zeros_like(Y[:1])
+        Y_shifted = torch.cat([Y_prev, Y[:-1]], dim=0)
+        output = Y - Y_shifted
+        self.X = X_cum[-1]
+        self.Y_pre = Y[-1]
+        return output
+
 
 class SpikeMaxPooling(nn.Module, SNNOperator):
     """Temporal max pooling for SNNs: accumulates and outputs differential pooled values.
@@ -191,6 +213,8 @@ class SpikeMaxPooling(nn.Module, SNNOperator):
     Args:
         maxpool: The original MaxPool module.
     """
+
+    participates_in_early_stop = False
 
     def __init__(self, maxpool):
         super().__init__()
@@ -212,4 +236,28 @@ class SpikeMaxPooling(nn.Module, SNNOperator):
         else:
             output = self.maxpool(self.accumulation) - self.maxpool(old_accu)
 
+        return output
+
+    def forward_multistep(self, x_seq):
+        """Vectorized multi-step: cumsum + maxpool + diff.
+
+        Args:
+            x_seq: [T, B, C, H, W]
+        Returns:
+            output: [T, B, C, H', W']
+        """
+        T, B = x_seq.shape[:2]
+        if self.accumulation is not None:
+            accu = x_seq.cumsum(dim=0) + self.accumulation
+            pooled_prev = self.maxpool(self.accumulation).unsqueeze(0)
+        else:
+            accu = x_seq.cumsum(dim=0)
+            pooled_prev = torch.zeros_like(
+                self.maxpool(accu[0])
+            ).unsqueeze(0)
+        pooled = self.maxpool(accu.reshape(T * B, *accu.shape[2:]))
+        pooled = pooled.reshape(T, B, *pooled.shape[1:])
+        pooled_shifted = torch.cat([pooled_prev, pooled[:-1]], dim=0)
+        output = pooled - pooled_shifted
+        self.accumulation = accu[-1]
         return output

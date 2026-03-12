@@ -9,6 +9,7 @@ from .registry import (
     OPS_HOOK_REGISTRY,
     MODEL_PROFILE_REGISTRY,
 )
+from .conversion.adapter import ADAPTER_REGISTRY
 from .config import (
     UniEvalConfig,
     QuantConfig,

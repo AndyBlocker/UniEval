@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """UniEval Verification Test Script.
 
-This script must be run in an environment with CUDA, PyTorch, and timm installed.
+This script must be run in an environment with CUDA and PyTorch installed.
 It verifies the correctness of the UniEval framework by testing:
 
-1. All module imports
+1. All module imports (including adapter)
 2. Registry system
 3. Config system
 4. Operator instantiation and forward pass
@@ -12,7 +12,11 @@ It verifies the correctness of the UniEval framework by testing:
 6. SNN conversion pipeline
 7. SNNWrapper temporal inference
 8. Evaluation components (OpsCounter, spike_rate)
-9. Full pipeline integration
+9. Model creation
+10. forward_multistep equivalence (strong semantic contract)
+11. Judger pre-cache and reset_model flat traversal
+12. New SNNWrapper API (step_encoded, encode_sequence, run_auto)
+13. Full pipeline integration
 
 Usage:
     python tests/test_verify.py
@@ -20,7 +24,6 @@ Usage:
 Requirements:
     - Python >= 3.8
     - PyTorch >= 1.10 (with CUDA)
-    - timm == 0.3.2
     - numpy, scipy
 """
 
@@ -76,6 +79,11 @@ def test_conversion_imports():
     from unieval.conversion.rules import ConversionRule, DEFAULT_CONVERSION_RULES
     from unieval.conversion.converter import SNNConverter
     from unieval.conversion.wrapper import SNNWrapper, Judger, reset_model, attn_convert
+    from unieval.conversion.adapter import (
+        ADAPTER_REGISTRY, ModelExecutionAdapter, ViTExecutionAdapter, DefaultExecutionAdapter,
+    )
+    assert "vit" in ADAPTER_REGISTRY
+    assert "default" in ADAPTER_REGISTRY
 
 
 def test_evaluation_imports():
@@ -547,7 +555,355 @@ def test_vit_small_creation():
     assert len(model.blocks) == 12
 
 
-# ===== Test 10: Full Pipeline =====
+# ===== Test 10: forward_multistep Equivalence =====
+
+def test_spiking_layernorm_multistep():
+    """Spiking_LayerNorm.forward_multistep ≡ sequential single-step."""
+    import torch
+    from unieval.operators.layers import Spiking_LayerNorm
+
+    sln1 = Spiking_LayerNorm(dim=8)
+    sln2 = Spiking_LayerNorm(dim=8)
+    sln2.load_state_dict(sln1.state_dict())
+
+    T = 5
+    x_seq = torch.randn(T, 2, 4, 8)
+
+    # Single-step
+    outputs_single = []
+    for t in range(T):
+        outputs_single.append(sln1(x_seq[t]))
+    outputs_single = torch.stack(outputs_single)
+
+    # Multi-step
+    outputs_multi = sln2.forward_multistep(x_seq)
+
+    assert torch.allclose(outputs_single, outputs_multi, atol=1e-5), \
+        f"Output diff: {(outputs_single - outputs_multi).abs().max()}"
+    assert torch.allclose(sln1.X, sln2.X, atol=1e-5), "State X mismatch"
+    assert torch.allclose(sln1.Y_pre, sln2.Y_pre, atol=1e-5), "State Y_pre mismatch"
+
+
+def test_spiking_layernorm_multistep_from_state():
+    """forward_multistep works from non-initial state (strong contract)."""
+    import torch
+    from unieval.operators.layers import Spiking_LayerNorm
+
+    sln1 = Spiking_LayerNorm(dim=8)
+    sln2 = Spiking_LayerNorm(dim=8)
+    sln2.load_state_dict(sln1.state_dict())
+
+    # Run a few single steps to build up state
+    warmup = torch.randn(3, 2, 4, 8)
+    for t in range(3):
+        sln1(warmup[t])
+        sln2(warmup[t])
+
+    # Now test multistep from this non-initial state
+    x_seq = torch.randn(4, 2, 4, 8)
+
+    outputs_single = torch.stack([sln1(x_seq[t]) for t in range(4)])
+    outputs_multi = sln2.forward_multistep(x_seq)
+
+    assert torch.allclose(outputs_single, outputs_multi, atol=1e-5), \
+        f"From-state diff: {(outputs_single - outputs_multi).abs().max()}"
+
+
+def test_spike_max_pooling_multistep():
+    """SpikeMaxPooling.forward_multistep ≡ sequential single-step."""
+    import torch
+    import torch.nn as nn
+    from unieval.operators.layers import SpikeMaxPooling
+
+    pool1 = SpikeMaxPooling(nn.MaxPool2d(2))
+    pool2 = SpikeMaxPooling(nn.MaxPool2d(2))
+
+    T = 5
+    x_seq = torch.randn(T, 2, 3, 4, 4)
+
+    # Single-step
+    outputs_single = torch.stack([pool1(x_seq[t]) for t in range(T)])
+
+    # Multi-step
+    outputs_multi = pool2.forward_multistep(x_seq)
+
+    assert torch.allclose(outputs_single, outputs_multi, atol=1e-5), \
+        f"Output diff: {(outputs_single - outputs_multi).abs().max()}"
+    assert torch.allclose(pool1.accumulation, pool2.accumulation, atol=1e-5)
+
+
+def test_spiking_softmax_multistep():
+    """spiking_softmax.forward_multistep ≡ sequential single-step."""
+    import torch
+    from unieval.operators.attention import spiking_softmax
+
+    ssm1 = spiking_softmax()
+    ssm2 = spiking_softmax()
+
+    T = 5
+    x_seq = torch.randn(T, 2, 4, 6, 6)
+
+    # Single-step
+    outputs_single = torch.stack([ssm1(x_seq[t]) for t in range(T)])
+
+    # Multi-step
+    outputs_multi = ssm2.forward_multistep(x_seq)
+
+    assert torch.allclose(outputs_single, outputs_multi, atol=1e-5), \
+        f"Output diff: {(outputs_single - outputs_multi).abs().max()}"
+
+
+def test_ifneuron_multistep_fallback():
+    """IFNeuron.forward_multistep uses default for-loop (inherits from SNNOperator)."""
+    import torch
+    from unieval.operators.neurons import IFNeuron
+
+    n1 = IFNeuron(q_threshold=torch.tensor(0.5), level=16, sym=True)
+    n2 = IFNeuron(q_threshold=torch.tensor(0.5), level=16, sym=True)
+
+    T = 4
+    x_seq = torch.randn(T, 2, 4)
+
+    outputs_single = torch.stack([n1(x_seq[t]) for t in range(T)])
+    outputs_multi = n2.forward_multistep(x_seq)
+
+    assert torch.allclose(outputs_single, outputs_multi, atol=1e-6), \
+        f"Output diff: {(outputs_single - outputs_multi).abs().max()}"
+
+
+def test_participates_in_early_stop_flags():
+    """Verify participates_in_early_stop is set correctly per operator type."""
+    import torch
+    from unieval.operators.neurons import IFNeuron, ORIIFNeuron
+    from unieval.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm, SpikeMaxPooling
+    from unieval.operators.attention import SAttention, spiking_softmax
+    import torch.nn as nn
+
+    # Should participate in early stop
+    assert IFNeuron(torch.tensor(1.0), 16, True).participates_in_early_stop == True
+    assert ORIIFNeuron(torch.tensor(1.0), 16).participates_in_early_stop == True
+    assert LLConv2d(nn.Conv2d(3, 3, 3)).participates_in_early_stop == True
+    assert LLLinear(nn.Linear(8, 4)).participates_in_early_stop == True
+
+    # Should NOT participate in early stop
+    assert Spiking_LayerNorm(8).participates_in_early_stop == False
+    assert SpikeMaxPooling(nn.MaxPool2d(2)).participates_in_early_stop == False
+    assert spiking_softmax().participates_in_early_stop == False
+    assert SAttention(dim=64, num_heads=4, level=16).participates_in_early_stop == False
+
+
+def test_working_property_defensive():
+    """working property raises if participates_in_early_stop=True but no is_work."""
+    from unieval.operators.base import SNNOperator
+
+    class BadOperator(SNNOperator):
+        participates_in_early_stop = True
+        def reset(self): pass
+
+    op = BadOperator()
+    try:
+        _ = op.working
+        assert False, "Should raise AttributeError"
+    except AttributeError:
+        pass
+
+
+# ===== Test 11: Judger and reset_model =====
+
+def test_judger_precache():
+    """Judger caches early-stop operators at init time."""
+    import torch
+    import torch.nn as nn
+    from unieval.operators.neurons import IFNeuron
+    from unieval.operators.layers import Spiking_LayerNorm
+    from unieval.conversion.wrapper import Judger
+
+    model = nn.Sequential(
+        IFNeuron(torch.tensor(0.5), level=16, sym=True),
+        Spiking_LayerNorm(dim=8),
+    )
+    judger = Judger(model)
+    # Only IFNeuron should be in early_stop_ops (Spiking_LayerNorm has flag=False)
+    assert len(judger._early_stop_ops) == 1
+
+
+def test_reset_model_flat():
+    """reset_model uses flat traversal and resets all SNNOperator instances."""
+    import torch
+    import torch.nn as nn
+    from unieval.operators.neurons import IFNeuron
+    from unieval.operators.layers import Spiking_LayerNorm
+    from unieval.operators.attention import spiking_softmax
+    from unieval.conversion.wrapper import reset_model
+
+    model = nn.Sequential(
+        IFNeuron(torch.tensor(0.5), level=16, sym=True),
+        Spiking_LayerNorm(dim=8),
+        spiking_softmax(),
+    )
+    # Run a forward to build state
+    x = torch.randn(2, 8)
+    model[0](x.narrow(-1, 0, 4))  # IFNeuron
+    model[1](x.unsqueeze(1))      # Spiking_LayerNorm
+    model[2](x.unsqueeze(1))      # spiking_softmax
+
+    reset_model(model)
+
+    # All should be in reset state
+    assert model[0].is_work == False
+    assert model[1].Y_pre is None
+    assert isinstance(model[2].X, float) and model[2].X == 0.0
+
+
+# ===== Test 12: New SNNWrapper API =====
+
+def test_encode_sequence_analog():
+    """encode_sequence with analog encoding: [x, 0, 0, ...]."""
+    import torch
+    from unieval.conversion.wrapper import SNNWrapper
+    import torch.nn as nn
+    from functools import partial
+    from unieval.quantization.lsq import LSQQuantizer
+    from unieval.models.vit import vit_small_patch16
+
+    model = vit_small_patch16(
+        num_classes=10, global_pool=True,
+        act_layer=nn.ReLU, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+    )
+    quantizer = LSQQuantizer(level=16, is_softmax=True)
+    model = quantizer.quantize_model(model)
+
+    wrapper = SNNWrapper(
+        ann_model=model, time_step=4, encoding_type="analog",
+        level=16, neuron_type="ST-BIF", model_name="vit_small",
+    )
+
+    x = torch.randn(2, 3, 224, 224)
+    x_seq = wrapper.encode_sequence(x, T=4)
+    assert x_seq.shape == (4, 2, 3, 224, 224)
+    assert torch.allclose(x_seq[0], x)
+    assert (x_seq[1:] == 0).all()
+
+
+def test_encode_sequence_rate():
+    """encode_sequence with rate encoding: uniform division."""
+    import torch
+    from unieval.conversion.wrapper import SNNWrapper
+    import torch.nn as nn
+    from functools import partial
+    from unieval.quantization.lsq import LSQQuantizer
+    from unieval.models.vit import vit_small_patch16
+
+    model = vit_small_patch16(
+        num_classes=10, global_pool=True,
+        act_layer=nn.ReLU, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+    )
+    quantizer = LSQQuantizer(level=16, is_softmax=True)
+    model = quantizer.quantize_model(model)
+
+    wrapper = SNNWrapper(
+        ann_model=model, time_step=4, encoding_type="rate",
+        level=16, neuron_type="ST-BIF", model_name="vit_small",
+    )
+
+    x = torch.randn(2, 3, 224, 224)
+    x_seq = wrapper.encode_sequence(x, T=8, encoding_type="rate")
+    assert x_seq.shape == (8, 2, 3, 224, 224)
+    # Sum should reconstruct original
+    assert torch.allclose(x_seq.sum(dim=0), x, atol=1e-5)
+
+
+def test_step_encoded_api():
+    """step_encoded runs a single timestep on pre-encoded input."""
+    import torch
+    import torch.nn as nn
+    from functools import partial
+    from unieval.quantization.lsq import LSQQuantizer
+    from unieval.conversion.wrapper import SNNWrapper
+    from unieval.models.vit import vit_small_patch16
+
+    model = vit_small_patch16(
+        num_classes=10, global_pool=True,
+        act_layer=nn.ReLU, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+    )
+    quantizer = LSQQuantizer(level=16, is_softmax=True)
+    model = quantizer.quantize_model(model)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    wrapper = SNNWrapper(
+        ann_model=model, time_step=4, encoding_type="analog",
+        level=16, neuron_type="ST-BIF", model_name="vit_small",
+    ).to(device).eval()
+
+    x = torch.randn(1, 3, 224, 224).to(device)
+    wrapper.reset()
+
+    # step 0: full input
+    out0 = wrapper.step_encoded(x)
+    assert out0.shape == (1, 10)
+
+    # step 1: zero input
+    out1 = wrapper.step_encoded(torch.zeros_like(x))
+    assert out1.shape == (1, 10)
+    assert wrapper._current_t == 2
+
+
+def test_step_encoded_vs_run_auto():
+    """Manual step_encoded loop should match run_auto for analog encoding."""
+    import torch
+    import torch.nn as nn
+    from functools import partial
+    from unieval.quantization.lsq import LSQQuantizer
+    from unieval.conversion.wrapper import SNNWrapper
+    from unieval.models.vit import VisionTransformer
+
+    model = VisionTransformer(
+        img_size=32, patch_size=8, in_chans=3, num_classes=10,
+        embed_dim=64, depth=2, num_heads=4, mlp_ratio=2.,
+        qkv_bias=True, act_layer=nn.ReLU,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), global_pool=True,
+    )
+    quantizer = LSQQuantizer(level=16, is_softmax=True)
+    model.train()
+    with torch.no_grad():
+        model(torch.randn(4, 3, 32, 32))
+    model.eval()
+    model = quantizer.quantize_model(model)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Run auto
+    from copy import deepcopy
+    model1 = deepcopy(model)
+    wrapper1 = SNNWrapper(
+        ann_model=model1, time_step=8, encoding_type="analog",
+        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+    ).to(device).eval()
+
+    x = torch.randn(1, 3, 32, 32).to(device)
+    with torch.no_grad():
+        accu_auto, T_auto = wrapper1(x)
+
+    # Manual step_encoded
+    model2 = deepcopy(model)
+    wrapper2 = SNNWrapper(
+        ann_model=model2, time_step=8, encoding_type="analog",
+        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+    ).to(device).eval()
+
+    wrapper2.reset()
+    x_seq = wrapper2.encode_sequence(x, T=T_auto)
+    accu_manual = torch.zeros_like(accu_auto)
+    with torch.no_grad():
+        for t in range(T_auto):
+            out_t = wrapper2.step_encoded(x_seq[t])
+            accu_manual += out_t
+
+    assert torch.allclose(accu_auto, accu_manual, atol=1e-5), \
+        f"Max diff: {(accu_auto - accu_manual).abs().max()}"
+
+
+# ===== Test 13: Full Pipeline =====
 
 def test_full_pipeline():
     import torch
@@ -649,6 +1005,25 @@ if __name__ == "__main__":
 
     print("\n--- Model Creation ---")
     run_test("ViT small creation", test_vit_small_creation)
+
+    print("\n--- forward_multistep Equivalence ---")
+    run_test("Spiking_LayerNorm multistep", test_spiking_layernorm_multistep)
+    run_test("Spiking_LayerNorm multistep from state", test_spiking_layernorm_multistep_from_state)
+    run_test("SpikeMaxPooling multistep", test_spike_max_pooling_multistep)
+    run_test("spiking_softmax multistep", test_spiking_softmax_multistep)
+    run_test("IFNeuron multistep fallback", test_ifneuron_multistep_fallback)
+    run_test("participates_in_early_stop flags", test_participates_in_early_stop_flags)
+    run_test("working property defensive", test_working_property_defensive)
+
+    print("\n--- Judger and reset_model ---")
+    run_test("Judger precache", test_judger_precache)
+    run_test("reset_model flat traversal", test_reset_model_flat)
+
+    print("\n--- New SNNWrapper API ---")
+    run_test("encode_sequence analog", test_encode_sequence_analog)
+    run_test("encode_sequence rate", test_encode_sequence_rate)
+    run_test("step_encoded API", test_step_encoded_api)
+    run_test("step_encoded vs run_auto", test_step_encoded_vs_run_auto)
 
     print("\n--- Full Pipeline ---")
     run_test("full pipeline", test_full_pipeline)
