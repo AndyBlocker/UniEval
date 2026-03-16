@@ -191,9 +191,16 @@ class SNNWrapper(nn.Module):
         self.finish_judger = Judger(self.model)
 
     def _detect_adapter_name(self):
-        """Auto-detect adapter based on model_name."""
+        """Auto-detect adapter based on model_name.
+
+        DVS models use default adapter because ViTExecutionAdapter.forward_multistep
+        does not handle the DVS align layer.
+        """
+        name_lower = self.model_name.lower()
+        if "dvs" in name_lower:
+            return "default"
         for prefix in ("vit", "deit"):
-            if prefix in self.model_name.lower():
+            if prefix in name_lower:
                 return prefix
         return "default"
 
@@ -220,6 +227,11 @@ class SNNWrapper(nn.Module):
         """Reset model state for new sample."""
         reset_model(self.model)
         self._current_t = 0
+        # Restore ViT embeddings that step() may have zeroed
+        if hasattr(self, "_saved_pos_embed"):
+            device = next(self.model.parameters()).device
+            self.model.pos_embed.data = self._saved_pos_embed.to(device)
+            self.model.cls_token.data = self._saved_cls_token.to(device)
 
     # ----------------------------------------------------------------
     # Encoding
@@ -272,12 +284,22 @@ class SNNWrapper(nn.Module):
         Uses adapter's multistep path if available.
         Returns per-step differential outputs; user sums to get final.
 
+        Note: Must be called from reset state (_current_t == 0) when using
+        ViT adapter, as the multistep path handles pos_embed/cls_token
+        internally assuming t starts at 0.
+
         Args:
             x_seq: [T, B, ...] pre-encoded temporal sequence.
 
         Returns:
             output_seq: [T, B, ...] differential outputs per step.
         """
+        if self._current_t != 0:
+            # Fall back to step-by-step to respect _current_t offset
+            outputs = []
+            for t in range(x_seq.shape[0]):
+                outputs.append(self.step_encoded(x_seq[t]))
+            return torch.stack(outputs)
         output_seq = self.adapter.forward_multistep(self.model, x_seq)
         self._current_t += x_seq.shape[0]
         return output_seq
