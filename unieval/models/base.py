@@ -14,7 +14,8 @@ class ModelProfile:
         depth: Number of transformer blocks.
         num_heads: Number of attention heads.
         embed_dim: Embedding dimension.
-        patch_size: Patch size (for ViT).
+        patch_size: Patch size (for ViT), used directly in SSA energy formula.
+        img_size: Input image size (for computing num_patches).
         time_steps: Default number of SNN timesteps.
         mlp_ratio: MLP expansion ratio.
     """
@@ -22,8 +23,14 @@ class ModelProfile:
     num_heads: int
     embed_dim: int
     patch_size: int = 16
+    img_size: int = 224
     time_steps: int = 15
     mlp_ratio: float = 4.0
+
+    @property
+    def num_patches(self):
+        """Number of patches: (img_size / patch_size) ^ 2."""
+        return (self.img_size // self.patch_size) ** 2
 
 
 # Register default ViT profiles
@@ -41,4 +48,8 @@ MODEL_PROFILE_REGISTRY.register_obj("vit_large", ModelProfile(
 
 MODEL_PROFILE_REGISTRY.register_obj("vit_huge", ModelProfile(
     depth=32, num_heads=16, embed_dim=1280, patch_size=14, time_steps=32,
+))
+
+MODEL_PROFILE_REGISTRY.register_obj("vit_small_dvs", ModelProfile(
+    depth=12, num_heads=6, embed_dim=384, patch_size=16, time_steps=15,
 ))

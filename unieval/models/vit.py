@@ -132,6 +132,65 @@ class Attention(nn.Module):
         return x
 
 
+class Attention_no_softmax(nn.Module):
+    """Softmax-free attention using ReLU, divides by sequence length N.
+
+    Used as an alternative to standard softmax attention when
+    ``is_softmax=False``. Replaces ``softmax(Q*K^T)`` with ``ReLU(Q*K^T)/N``.
+    """
+
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
+                 attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.head_dim = head_dim
+        self.scale = qk_scale or head_dim ** -0.5
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.attn_Relu = nn.ReLU(inplace=True)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(
+            B, N, 3, self.num_heads, C // self.num_heads
+        ).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = self.attn_Relu(attn) / N
+        attn = self.attn_drop(attn)
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+def remove_softmax(model):
+    """Replace all softmax Attention modules with ReLU-based Attention_no_softmax.
+
+    Recursively walks the model tree and replaces standard ``Attention``
+    modules with ``Attention_no_softmax``, transferring weights.
+
+    Args:
+        model: The model to modify in-place.
+    """
+    for name, child in list(model.named_children()):
+        if isinstance(child, Attention):
+            relu_attn = Attention_no_softmax(
+                dim=child.num_heads * child.head_dim,
+                num_heads=child.num_heads,
+            )
+            relu_attn.qkv = child.qkv
+            relu_attn.attn_drop = child.attn_drop
+            relu_attn.proj = child.proj
+            relu_attn.proj_drop = child.proj_drop
+            model._modules[name] = relu_attn
+        else:
+            remove_softmax(child)
+
+
 class Block(nn.Module):
     """Transformer encoder block: Attention + MLP with residual + LayerNorm."""
 

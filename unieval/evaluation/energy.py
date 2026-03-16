@@ -1,4 +1,18 @@
-"""Energy consumption evaluator with configurable energy model."""
+"""Energy consumption evaluator with configurable energy model.
+
+Energy model (45nm technology node, Horowitz 2014):
+    E_MAC = 4.6 pJ per multiply-accumulate
+    E_AC  = 0.9 pJ per accumulate (addition only)
+
+For ternary-output neurons ({-threshold, 0, +threshold}), the threshold
+can be fused into weights, so multiplication degenerates to conditional
+addition (AC).  Layers whose input firing rate == 100% are treated as
+dense (MAC); all others are sparse (AC).
+
+SSA (Spiking Self-Attention) energy follows the SpikeZIP-TF formula
+which accounts for Q, K, V firing rates in the temporal matmul
+decomposition (multi / multi1 functions).
+"""
 
 import numpy as np
 import torch
@@ -15,21 +29,42 @@ from ..models.base import ModelProfile
 from ..registry import EVALUATOR_REGISTRY
 
 
-def _find_sattention_modules(model):
-    """Dynamically discover all SAttention modules in the model tree."""
-    modules = []
-    for name, module in model.named_modules():
-        if isinstance(module, SAttention):
-            modules.append((name, module))
-    return modules
+# ---------------------------------------------------------------------------
+# Layer filtering — matches original SpikeZIP-TF flops_counter.py logic
+# ---------------------------------------------------------------------------
 
+def _is_energy_relevant(name, module):
+    """Check if a module should be included in energy calculation.
+
+    Original filter: "conv" in name or "linear" in name or LayerNorm or IFNeuron,
+    excluding MyQuan modules.
+    """
+    if isinstance(module, MyQuan):
+        return False
+    if "conv" in name or "linear" in name:
+        return True
+    if isinstance(module, nn.LayerNorm):
+        return True
+    if isinstance(module, IFNeuron):
+        return True
+    return False
+
+
+def _is_conv_layer(name, module):
+    """Conv layers need Tsteps correction on firing rate."""
+    return "conv" in name
+
+
+# ---------------------------------------------------------------------------
+# Evaluator
+# ---------------------------------------------------------------------------
 
 @EVALUATOR_REGISTRY.register("energy")
 class EnergyEvaluator(BaseEvaluator):
     """Evaluator for SNN energy consumption.
 
     Computes energy based on configurable E_mac/E_ac parameters and
-    dynamically discovered SAttention modules.
+    dynamically discovered SAttention modules for SSA energy.
 
     Args:
         energy_config: EnergyConfig with e_mac, e_ac, nspks_max.
@@ -81,21 +116,40 @@ class EnergyEvaluator(BaseEvaluator):
         return energy_result
 
     def _compute_energy(self, model, layer_stats):
-        """Compute energy from per-layer SYOPS stats."""
+        """Compute energy from per-layer SYOPS stats.
+
+        Decision logic (matching original SpikeZIP-TF flops_counter.py):
+        1. For each energy-relevant layer, read its firing rate %.
+        2. Conv layers: firing_rate *= Tsteps (the hook accumulates across
+           timesteps, so the raw rate needs rescaling).
+        3. If firing_rate ≈ 100% → dense input → count as MAC.
+        4. Otherwise → sparse/spike input → count as AC.
+
+        AC means addition-only because the ternary spike output {-1,0,+1}
+        turns multiplication into conditional addition (threshold fused
+        into weights).
+        """
         e_mac = self.energy_config.e_mac
         e_ac = self.energy_config.e_ac
+        time_steps = self.profile.time_steps if self.profile else self.ops_counter.time_step
 
         total_mac_ops = 0.0
         total_ac_ops = 0.0
         layer_details = []
 
         for name, module, syops in layer_stats:
-            if isinstance(module, MyQuan):
+            if not _is_energy_relevant(name, module):
                 continue
 
-            if abs(syops[3] - 100) < 1e-4:  # firing rate ~100% -> MAC
+            # Conv layers need Tsteps correction on firing rate,
+            # matching original SpikeZIP-TF flops_counter.py line 58
+            firing_rate_pct = syops[3]
+            if _is_conv_layer(name, module):
+                firing_rate_pct = firing_rate_pct * time_steps
+
+            if abs(firing_rate_pct - 100) < 1e-4:  # fr ≈ 100% → MAC
                 total_mac_ops += syops[2]
-            else:
+            else:                                    # sparse → AC
                 total_ac_ops += syops[1]
 
             layer_details.append({
@@ -103,16 +157,21 @@ class EnergyEvaluator(BaseEvaluator):
                 "total_ops": syops[0],
                 "ac_ops": syops[1],
                 "mac_ops": syops[2],
-                "firing_rate": syops[3] / 100.0,
+                "firing_rate": firing_rate_pct / 100.0,
             })
 
         # SSA energy from dynamically discovered SAttention modules
         inner = model.module if hasattr(model, "module") else model
+        times_counter = max(model.__times_counter__, 1) if hasattr(model, "__times_counter__") else 1
         if isinstance(inner, SNNWrapper) and self.profile is not None:
-            ssa_ac = self._compute_ssa_energy(inner, self.profile)
+            ssa_ac, ssa_qkv_fr = self._compute_ssa_energy(
+                inner, self.profile, times_counter
+            )
             total_ac_ops += ssa_ac
+        else:
+            ssa_qkv_fr = []
 
-        # Convert to energy (pJ -> mJ)
+        # Convert raw op counts to Giga-ops, then to energy (mJ)
         total_mac_ops_g = total_mac_ops / 1e9
         total_ac_ops_g = total_ac_ops / 1e9
         e_mac_total = total_mac_ops_g * e_mac  # mJ
@@ -127,14 +186,27 @@ class EnergyEvaluator(BaseEvaluator):
                 "mac_ops_G": total_mac_ops_g,
                 "ac_ops_G": total_ac_ops_g,
             },
-            details={"layers": layer_details},
+            details={
+                "layers": layer_details,
+                "ssa_qkv_firing_rates": ssa_qkv_fr,
+            },
         )
 
-    def _compute_ssa_energy(self, wrapper, profile):
-        """Compute SSA (Spiking Self-Attention) energy dynamically.
+    def _compute_ssa_energy(self, wrapper, profile, times_counter):
+        """Compute SSA (Spiking Self-Attention) energy.
 
-        Instead of using eval() with hardcoded paths, discovers SAttention
-        modules and reads their firing rates directly.
+        Fixes a normalization bug inherited from SpikeZIP-TF: the original
+        code reads raw accumulated __syops__[3] without dividing by
+        times_counter, making SSA energy dependent on num_batches.
+
+        The temporal matmul decomposition (multi/multi1 functions) yields:
+          Q*K^T:  base * (q_fr + k_fr + min(q_fr, k_fr))
+          Attn*V: base * (v_fr + min(q_fr, k_fr, v_fr) + min(q_fr, k_fr))
+
+        where base = Tsteps * Nheads * patchSize^2 * (embSize_per_head)^2.
+
+        Returns:
+            (total_ssa_ac_ops, qkv_firing_rates_per_block)
         """
         depth = profile.depth
         num_heads = profile.num_heads
@@ -143,22 +215,44 @@ class EnergyEvaluator(BaseEvaluator):
         time_steps = profile.time_steps
 
         embed_per_head = embed_dim // num_heads
-        ssa_base = time_steps * num_heads * (patch_size ** 2) * (embed_per_head ** 2)
+        ssa_base = (time_steps * num_heads
+                    * (patch_size ** 2)
+                    * (embed_per_head ** 2))
 
-        # Find all SAttention modules
-        model = wrapper.model if hasattr(wrapper, "model") else wrapper
-        sa_modules = _find_sattention_modules(model)
+        # Find all SAttention modules dynamically (replaces eval() with hardcoded paths)
+        model = wrapper.model
+        sa_modules = []
+        for _, module in model.named_modules():
+            if isinstance(module, SAttention):
+                sa_modules.append(module)
 
         total_ssa_ac = 0.0
-        for _, sa_module in sa_modules[:depth]:
-            # Read firing rates from IF neurons
-            q_fr = sa_module.q_IF.__syops__[3] / 100.0 if hasattr(sa_module.q_IF, "__syops__") else 0.5
-            k_fr = sa_module.k_IF.__syops__[3] / 100.0 if hasattr(sa_module.k_IF, "__syops__") else 0.5
-            v_fr = sa_module.v_IF.__syops__[3] / 100.0 if hasattr(sa_module.v_IF, "__syops__") else 0.5
+        qkv_fr_list = []
+        for sa in sa_modules[:depth]:
+            # Read firing rates from IF neurons' __syops__ counters,
+            # normalized by times_counter (fixes SpikeZIP-TF bug)
+            q_fr = self._get_neuron_fr(sa.q_IF, times_counter)
+            k_fr = self._get_neuron_fr(sa.k_IF, times_counter)
+            v_fr = self._get_neuron_fr(sa.v_IF, times_counter)
+            qkv_fr_list.append([q_fr, k_fr, v_fr])
 
-            # Q*K^T and Attn*V operations with sparsity
+            # Q*K^T term
             t_ac = ssa_base * (q_fr + k_fr + min(q_fr, k_fr))
+            # Attn*V term
             t_ac += ssa_base * (v_fr + min(q_fr, k_fr, v_fr) + min(q_fr, k_fr))
             total_ssa_ac += t_ac
 
-        return total_ssa_ac
+        return total_ssa_ac, qkv_fr_list
+
+    @staticmethod
+    def _get_neuron_fr(neuron, times_counter=1):
+        """Read normalized firing rate from a neuron's __syops__ counter.
+
+        Divides by times_counter to get per-timestep average firing rate,
+        fixing the normalization bug inherited from SpikeZIP-TF.
+
+        Falls back to 0.0 if OpsCounter hooks were not attached.
+        """
+        if hasattr(neuron, "__syops__"):
+            return neuron.__syops__[3] / (100.0 * times_counter)
+        return 0.0

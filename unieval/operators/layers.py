@@ -80,6 +80,16 @@ class LLConv2d(nn.Module, SNNOperator):
         self.first = False
         return output
 
+    def forward_multistep(self, x_seq):
+        """Sequential multi-step with pre-allocated output (avoids list+stack)."""
+        T = x_seq.shape[0]
+        out0 = self.forward(x_seq[0])
+        result = torch.empty(T, *out0.shape, device=out0.device, dtype=out0.dtype)
+        result[0] = out0
+        for t in range(1, T):
+            result[t] = self.forward(x_seq[t])
+        return result
+
 
 class LLLinear(nn.Module, SNNOperator):
     """Leaky-integration Linear wrapper for SNN temporal inference.
@@ -155,6 +165,16 @@ class LLLinear(nn.Module, SNNOperator):
         self.is_work = True
         self.first = False
         return output
+
+    def forward_multistep(self, x_seq):
+        """Sequential multi-step with pre-allocated output (avoids list+stack)."""
+        T = x_seq.shape[0]
+        out0 = self.forward(x_seq[0])
+        result = torch.empty(T, *out0.shape, device=out0.device, dtype=out0.dtype)
+        result[0] = out0
+        for t in range(1, T):
+            result[t] = self.forward(x_seq[t])
+        return result
 
 
 class Spiking_LayerNorm(nn.Module, SNNOperator):

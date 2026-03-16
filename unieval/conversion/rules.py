@@ -50,28 +50,13 @@ def _convert_qattention(name, child, parent, level, neuron_type, is_softmax, **k
     parent._modules[name] = sattn
 
 
-def _match_myquan(name, child, parent):
-    return isinstance(child, MyQuan)
+def _match_quan(name, child, parent):
+    """Match any quantization module (MyQuan or PTQQuan)."""
+    return isinstance(child, (MyQuan, PTQQuan))
 
 
-def _convert_myquan(name, child, parent, level, neuron_type, **kw):
-    neurons = IFNeuron(
-        q_threshold=torch.tensor(1.0), sym=child.sym, level=child.pos_max
-    )
-    neurons.q_threshold = child.s.data
-    neurons.neuron_type = neuron_type
-    neurons.level = level
-    neurons.pos_max = child.pos_max
-    neurons.neg_min = child.neg_min
-    neurons.is_init = False
-    parent._modules[name] = neurons
-
-
-def _match_ptqquan(name, child, parent):
-    return isinstance(child, PTQQuan)
-
-
-def _convert_ptqquan(name, child, parent, level, neuron_type, **kw):
+def _convert_quan_to_neuron(name, child, parent, level, neuron_type, **kw):
+    """Convert MyQuan / PTQQuan → IFNeuron with transferred thresholds."""
     neurons = IFNeuron(
         q_threshold=torch.tensor(1.0), sym=child.sym, level=child.pos_max
     )
@@ -126,8 +111,7 @@ def _convert_relu(name, child, parent, **kw):
 
 DEFAULT_CONVERSION_RULES = [
     ConversionRule("qattention_to_sattention", _match_qattention, _convert_qattention, priority=100),
-    ConversionRule("myquan_to_ifneuron", _match_myquan, _convert_myquan, priority=90),
-    ConversionRule("ptqquan_to_ifneuron", _match_ptqquan, _convert_ptqquan, priority=85),
+    ConversionRule("quan_to_ifneuron", _match_quan, _convert_quan_to_neuron, priority=90),
     ConversionRule("conv2d_to_llconv2d", _match_conv2d, _convert_conv2d, priority=50),
     ConversionRule("linear_to_lllinear", _match_linear, _convert_linear, priority=50),
     ConversionRule("layernorm_to_spiking", _match_layernorm, _convert_layernorm, priority=40),

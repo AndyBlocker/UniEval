@@ -192,7 +192,7 @@ class SNNWrapper(nn.Module):
 
     def _detect_adapter_name(self):
         """Auto-detect adapter based on model_name."""
-        for prefix in ("vit", "deit", "swin"):
+        for prefix in ("vit", "deit"):
             if prefix in self.model_name.lower():
                 return prefix
         return "default"
@@ -337,10 +337,11 @@ class SNNWrapper(nn.Module):
                 accu_per_timestep.append(accu.clone())
 
             count += 1
-            if count % 100 == 0:
+            if verbose and count % 100 == 0:
                 print(count)
 
-        print(f"\nTime Step: {count}")
+        if verbose:
+            print(f"\nTime Step: {count}")
 
         if verbose:
             accu_per_timestep = torch.stack(accu_per_timestep, dim=0)

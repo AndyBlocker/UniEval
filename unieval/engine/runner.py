@@ -15,6 +15,7 @@ from ..evaluation.ops_counter import OpsCounter
 from ..models.base import ModelProfile
 from ..models.vit import (
     vit_small_patch16, vit_base_patch16, vit_large_patch16, vit_huge_patch14,
+    vit_small_patch16_dvs,
 )
 
 
@@ -24,6 +25,7 @@ MODEL_FACTORIES = {
     "vit_base": vit_base_patch16,
     "vit_large": vit_large_patch16,
     "vit_huge": vit_huge_patch14,
+    "vit_small_dvs": vit_small_patch16_dvs,
 }
 
 
@@ -55,6 +57,7 @@ class UniEvalRunner:
                 f"Available: {list(MODEL_FACTORIES.keys())}"
             )
         model = factory(
+            img_size=self.config.img_size,
             num_classes=self.config.num_classes,
             global_pool=self.config.global_pool,
             act_layer=act_layer,
@@ -89,6 +92,26 @@ class UniEvalRunner:
             quantizer = quantizer_cls(level=qcfg.level, **kwargs)
 
         return quantizer.quantize_model(model)
+
+    def calibrate_ptq(self, model, dataloader, num_batches=10):
+        """Run PTQ calibration by forwarding data through the quantized model.
+
+        PTQQuan modules automatically calibrate on their first forward pass
+        using KL-divergence threshold optimization.
+
+        Args:
+            model: The quantized model (with PTQQuan modules).
+            dataloader: Calibration data.
+            num_batches: Number of batches for calibration.
+        """
+        model.eval()
+        device = next(model.parameters()).device
+        with torch.no_grad():
+            for i, (batch, _) in enumerate(dataloader):
+                if i >= num_batches:
+                    break
+                batch = batch.float().to(device)
+                model(batch)
 
     def convert(self, model, converter=None):
         """Convert quantized model to SNN wrapped model.
@@ -147,15 +170,20 @@ class UniEvalRunner:
         else:
             profile = None
 
+        time_step = self.config.conversion.time_step
+        ops_counter = OpsCounter(time_step=time_step)
+
         evaluator = EnergyEvaluator(
             energy_config=self.config.energy,
             model_profile=profile,
+            ops_counter=ops_counter,
             num_batches=self.config.evaluation.num_batches,
         )
         return evaluator.evaluate(model, dataloader, **kwargs)
 
     def run_full_pipeline(self, dataloader, act_layer=nn.ReLU,
-                          quantizer_name="lsq", checkpoint_path=None):
+                          quantizer_name="lsq", checkpoint_path=None,
+                          calibration_dataloader=None):
         """Run the complete pipeline: create -> quantize -> convert -> evaluate.
 
         Args:
@@ -163,6 +191,9 @@ class UniEvalRunner:
             act_layer: Activation layer for model creation.
             quantizer_name: Quantizer to use.
             checkpoint_path: Optional checkpoint to load.
+            calibration_dataloader: Optional separate dataloader for PTQ
+                calibration. If None and quantizer is "ptq", uses the test
+                dataloader (PTQQuan auto-calibrates on first forward).
 
         Returns:
             Tuple of (accuracy_result, energy_result, model).
@@ -181,12 +212,19 @@ class UniEvalRunner:
         # 3. Quantize
         model = self.quantize(model, quantizer_name=quantizer_name)
 
+        # 3b. PTQ calibration if needed
+        if quantizer_name == "ptq" and calibration_dataloader is not None:
+            device = self.config.device
+            model = model.to(device)
+            self.calibrate_ptq(model, calibration_dataloader)
+
         # 4. Convert to SNN
         wrapper = self.convert(model)
 
-        # 5. Move to device
+        # 5. Move to device and set eval mode
         device = self.config.device
         wrapper = wrapper.to(device)
+        wrapper.eval()
 
         # 6. Evaluate
         acc_result = self.evaluate_accuracy(wrapper, dataloader)

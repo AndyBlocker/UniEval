@@ -3,10 +3,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from copy import deepcopy
-
 from .base import SNNOperator
-from .neurons import IFNeuron
+from .neurons import IFNeuron, _sequential_multistep
 
 
 def multi(x1_t, x2_t, x1_sum_t, x2_sum_t):
@@ -38,7 +36,10 @@ class spiking_softmax(nn.Module, SNNOperator):
     def forward(self, input):
         self.X = input + self.X
         Y = F.softmax(self.X, dim=-1)
-        Y_pre = deepcopy(self.Y_pre)
+        if torch.is_tensor(self.Y_pre):
+            Y_pre = self.Y_pre.detach().clone()
+        else:
+            Y_pre = self.Y_pre
         self.Y_pre = Y
         return Y - Y_pre
 
@@ -139,8 +140,11 @@ class SAttention(nn.Module, SNNOperator):
         self.proj_IF.reset()
         if self.is_softmax:
             self.Ssoftmax.reset()
-        self.qkv.reset()
-        self.proj.reset()
+        # qkv and proj have reset() only after conversion to LLLinear
+        if hasattr(self.qkv, "reset"):
+            self.qkv.reset()
+        if hasattr(self.proj, "reset"):
+            self.proj.reset()
         self.T = 0
 
     def forward(self, x):
@@ -193,3 +197,12 @@ class SAttention(nn.Module, SNNOperator):
 
         self.T += 1
         return x
+
+    def forward_multistep(self, x_seq):
+        """Sequential multi-step with pre-allocated output.
+
+        SAttention is inherently sequential (IF neurons maintain running
+        state, multi() depends on accumulated values).  Pre-allocation
+        avoids list+stack overhead.
+        """
+        return _sequential_multistep(self, x_seq)

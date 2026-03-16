@@ -158,6 +158,7 @@ def test_model_profile_registry():
     assert "vit_small" in keys
     assert "vit_base" in keys
     assert "vit_large" in keys
+    assert "vit_small_dvs" in keys
     profile = MODEL_PROFILE_REGISTRY.get("vit_small")
     assert profile.depth == 12
     assert profile.num_heads == 6
@@ -380,10 +381,10 @@ def test_ptq_quan():
 
 def test_conversion_rules():
     from unieval.conversion.rules import DEFAULT_CONVERSION_RULES
-    assert len(DEFAULT_CONVERSION_RULES) == 7
+    assert len(DEFAULT_CONVERSION_RULES) == 6
     names = [r.name for r in DEFAULT_CONVERSION_RULES]
     assert "qattention_to_sattention" in names
-    assert "myquan_to_ifneuron" in names
+    assert "quan_to_ifneuron" in names
     assert "relu_to_identity" in names
 
 
@@ -903,7 +904,323 @@ def test_step_encoded_vs_run_auto():
         f"Max diff: {(accu_auto - accu_manual).abs().max()}"
 
 
-# ===== Test 13: Full Pipeline =====
+# ===== Test 13: Bug Fix Verification =====
+
+def test_myquan_device_agnostic():
+    """MyQuan init_state should use x.device, not hardcoded .cuda()."""
+    import torch
+    from unieval.quantization.lsq import MyQuan
+
+    mq = MyQuan(level=16, sym=True)
+    mq.train()
+    x = torch.randn(4, 8)  # CPU tensor
+    y = mq(x)
+    assert y.shape == x.shape
+    # s should be on same device as x
+    assert str(mq.s.device) == str(x.device)
+
+
+def test_sattention_reset_before_conversion():
+    """SAttention.reset() should not crash when qkv/proj are still nn.Linear."""
+    import torch
+    from unieval.operators.attention import SAttention
+
+    sa = SAttention(dim=64, num_heads=4, level=16)
+    x = torch.randn(1, 8, 64)
+    _ = sa(x)
+    # Should NOT raise AttributeError
+    sa.reset()
+
+
+def test_ops_counter_configurable_timestep():
+    """OpsCounter should use configurable time_step, not hardcoded 15."""
+    import torch
+    import torch.nn as nn
+    from unieval.evaluation.ops_counter import OpsCounter
+
+    model = nn.Sequential(nn.Linear(8, 4), nn.ReLU())
+    counter = OpsCounter(time_step=32)
+    counter.attach(model)
+
+    x = torch.randn(2, 8)
+    _ = model(x)
+
+    # times_counter should be 32, not 15
+    assert model.__times_counter__ == 32
+    counter.detach(model)
+
+
+def test_spiking_softmax_no_deepcopy():
+    """spiking_softmax should use detach().clone() instead of deepcopy."""
+    import torch
+    from unieval.operators.attention import spiking_softmax
+
+    ssm = spiking_softmax()
+    x = torch.randn(2, 4, 4)
+    y1 = ssm(x)
+    assert y1.shape == x.shape
+    # Y_pre should be a tensor after first forward
+    assert torch.is_tensor(ssm.Y_pre)
+    y2 = ssm(x)
+    assert y2.shape == x.shape
+
+
+def test_model_profile_num_patches():
+    """ModelProfile should compute num_patches from img_size and patch_size."""
+    from unieval.models.base import ModelProfile
+
+    profile = ModelProfile(
+        depth=12, num_heads=6, embed_dim=384,
+        patch_size=16, img_size=224,
+    )
+    assert profile.num_patches == 196  # (224/16)^2
+
+    profile14 = ModelProfile(
+        depth=12, num_heads=6, embed_dim=384,
+        patch_size=14, img_size=224,
+    )
+    assert profile14.num_patches == 256  # (224/14)^2
+
+
+def test_config_img_size():
+    """UniEvalConfig should have img_size field."""
+    from unieval.config import UniEvalConfig
+    cfg = UniEvalConfig()
+    assert cfg.img_size == 224
+
+
+def test_remove_softmax():
+    """remove_softmax should replace Attention with Attention_no_softmax."""
+    import torch
+    import torch.nn as nn
+    from functools import partial
+    from unieval.models.vit import (
+        vit_small_patch16, Attention, Attention_no_softmax, remove_softmax,
+    )
+
+    model = vit_small_patch16(
+        num_classes=10, global_pool=True,
+        act_layer=nn.ReLU, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+    )
+    # Before: should have Attention modules
+    has_attn = any(isinstance(m, Attention) for m in model.modules())
+    assert has_attn
+
+    remove_softmax(model)
+
+    # After: should have Attention_no_softmax, no Attention
+    has_attn = any(isinstance(m, Attention) for m in model.modules())
+    has_relu_attn = any(isinstance(m, Attention_no_softmax) for m in model.modules())
+    assert not has_attn, "Standard Attention should be replaced"
+    assert has_relu_attn, "Attention_no_softmax should be present"
+
+
+def test_wrapper_no_debug_print(capsys=None):
+    """SNNWrapper.run_auto should not print when verbose=False."""
+    import torch
+    import torch.nn as nn
+    from functools import partial
+    from io import StringIO
+    import sys
+    from unieval.quantization.lsq import LSQQuantizer
+    from unieval.conversion.wrapper import SNNWrapper
+    from unieval.models.vit import VisionTransformer
+
+    model = VisionTransformer(
+        img_size=32, patch_size=8, in_chans=3, num_classes=10,
+        embed_dim=64, depth=2, num_heads=4, mlp_ratio=2.,
+        qkv_bias=True, act_layer=nn.ReLU,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), global_pool=True,
+    )
+    quantizer = LSQQuantizer(level=16, is_softmax=True)
+    model.train()
+    with torch.no_grad():
+        model(torch.randn(4, 3, 32, 32))
+    model.eval()
+    model = quantizer.quantize_model(model)
+
+    wrapper = SNNWrapper(
+        ann_model=model, time_step=4, encoding_type="analog",
+        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+    ).eval()
+
+    # Capture stdout
+    old_stdout = sys.stdout
+    sys.stdout = captured = StringIO()
+    try:
+        x = torch.randn(1, 3, 32, 32)
+        with torch.no_grad():
+            wrapper(x, verbose=False)
+    finally:
+        sys.stdout = old_stdout
+
+    output = captured.getvalue()
+    assert "Time Step" not in output, f"Debug output leaked: {output!r}"
+
+
+# ===== Test 14: New Fix Verification =====
+
+def test_ifneuron_default_attributes():
+    """IFNeuron should have neuron_type and is_init attributes by default."""
+    import torch
+    from unieval.operators.neurons import IFNeuron, ORIIFNeuron
+
+    n = IFNeuron(q_threshold=torch.tensor(0.5), level=16, sym=True)
+    assert n.neuron_type == "IF"
+    assert n.is_init == True
+
+    n2 = ORIIFNeuron(q_threshold=torch.tensor(0.5), level=16)
+    assert n2.neuron_type == "ORIIF"
+    assert n2.is_init == True
+
+
+def test_llconv2d_multistep():
+    """LLConv2d.forward_multistep uses pre-allocated output."""
+    import torch
+    import torch.nn as nn
+    from unieval.operators.layers import LLConv2d
+
+    conv = nn.Conv2d(3, 8, 3, padding=1)
+    ll = LLConv2d(conv, neuron_type="ST-BIF", level=16)
+
+    T = 3
+    x_seq = torch.randn(T, 1, 3, 8, 8)
+
+    # Multi-step
+    result = ll.forward_multistep(x_seq)
+    assert result.shape == (T, 1, 8, 8, 8)
+
+    # Verify equivalence with sequential
+    ll2 = LLConv2d(conv, neuron_type="ST-BIF", level=16)
+    ll2.load_state_dict(ll.state_dict(), strict=False)
+    ll2.reset()
+    ll.reset()
+
+    x_seq2 = torch.randn(T, 1, 3, 8, 8)
+    single = torch.stack([ll(x_seq2[t]) for t in range(T)])
+    ll2.reset()
+    multi = ll2.forward_multistep(x_seq2)
+    assert torch.allclose(single, multi, atol=1e-6)
+
+
+def test_lllinear_multistep():
+    """LLLinear.forward_multistep uses pre-allocated output."""
+    import torch
+    import torch.nn as nn
+    from unieval.operators.layers import LLLinear
+
+    linear = nn.Linear(8, 4)
+    ll = LLLinear(linear, neuron_type="ST-BIF", level=16)
+
+    T = 3
+    x_seq = torch.randn(T, 2, 3, 8)
+
+    result = ll.forward_multistep(x_seq)
+    assert result.shape == (T, 2, 3, 4)
+
+
+def test_sattention_multistep():
+    """SAttention.forward_multistep uses pre-allocated output."""
+    import torch
+    from unieval.operators.attention import SAttention
+
+    sa = SAttention(dim=32, num_heads=2, level=16)
+    T = 3
+    x_seq = torch.randn(T, 1, 4, 32)
+    result = sa.forward_multistep(x_seq)
+    assert result.shape == (T, 1, 4, 32)
+
+
+def test_adapter_forward_multistep_sequential():
+    """ViTExecutionAdapter.forward_multistep should handle nn.Sequential proj."""
+    import torch
+    import torch.nn as nn
+    from functools import partial
+    from unieval.quantization.lsq import LSQQuantizer
+    from unieval.conversion.wrapper import SNNWrapper
+    from unieval.models.vit import VisionTransformer
+
+    model = VisionTransformer(
+        img_size=32, patch_size=8, in_chans=3, num_classes=10,
+        embed_dim=64, depth=2, num_heads=4, mlp_ratio=2.,
+        qkv_bias=True, act_layer=nn.ReLU,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), global_pool=True,
+    )
+    quantizer = LSQQuantizer(level=16, is_softmax=True)
+    model.train()
+    with torch.no_grad():
+        model(torch.randn(4, 3, 32, 32))
+    model.eval()
+    model = quantizer.quantize_model(model)
+
+    wrapper = SNNWrapper(
+        ann_model=model, time_step=4, encoding_type="analog",
+        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+    ).eval()
+
+    # After conversion, patch_embed.proj should be nn.Sequential
+    assert isinstance(wrapper.model.patch_embed.proj, nn.Sequential), \
+        f"Expected Sequential, got {type(wrapper.model.patch_embed.proj)}"
+
+    # forward_encoded should NOT crash (this was the bug)
+    wrapper.reset()
+    x = torch.randn(1, 3, 32, 32)
+    x_seq = wrapper.encode_sequence(x, T=3)
+    with torch.no_grad():
+        output_seq = wrapper.forward_encoded(x_seq)
+    assert output_seq.shape[0] == 3
+    assert output_seq.shape[1] == 1
+    assert output_seq.shape[2] == 10
+
+
+def test_dvs_model_creation():
+    """DVS model should be creatable via runner."""
+    import torch.nn as nn
+    from functools import partial
+    from unieval.config import UniEvalConfig
+    from unieval.engine.runner import UniEvalRunner
+
+    cfg = UniEvalConfig(model_name="vit_small_dvs", num_classes=10)
+    runner = UniEvalRunner(cfg)
+    model = runner.create_model(
+        act_layer=nn.ReLU,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+    )
+    assert hasattr(model, 'align')  # DVS-specific alignment conv
+
+
+def test_ptq_conversion():
+    """PTQ quantized model should convert correctly to SNN."""
+    import torch
+    import torch.nn as nn
+    from functools import partial
+    from unieval.quantization.ptq import PTQQuantizer, PTQQuan
+    from unieval.conversion.converter import SNNConverter
+    from unieval.operators.neurons import IFNeuron
+    from unieval.models.vit import VisionTransformer
+
+    model = VisionTransformer(
+        img_size=32, patch_size=8, in_chans=3, num_classes=10,
+        embed_dim=64, depth=2, num_heads=4, mlp_ratio=2.,
+        qkv_bias=True, act_layer=nn.ReLU,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), global_pool=True,
+    )
+    quantizer = PTQQuantizer(level=16, is_softmax=True)
+    model = quantizer.quantize_model(model)
+
+    # Verify PTQQuan modules exist
+    found_ptq = any(isinstance(m, PTQQuan) for m in model.modules())
+    assert found_ptq, "PTQQuan not found after PTQ quantization"
+
+    # Convert to SNN — the merged rule should handle PTQQuan
+    converter = SNNConverter()
+    converter.convert(model, level=16, neuron_type="ST-BIF", is_softmax=True)
+
+    found_if = any(isinstance(m, IFNeuron) for m in model.modules())
+    assert found_if, "IFNeuron not found after PTQ conversion"
+
+
+# ===== Test 15: Full Pipeline =====
 
 def test_full_pipeline():
     import torch
@@ -1024,6 +1341,25 @@ if __name__ == "__main__":
     run_test("encode_sequence rate", test_encode_sequence_rate)
     run_test("step_encoded API", test_step_encoded_api)
     run_test("step_encoded vs run_auto", test_step_encoded_vs_run_auto)
+
+    print("\n--- Bug Fix Verification ---")
+    run_test("MyQuan device-agnostic", test_myquan_device_agnostic)
+    run_test("SAttention reset before conversion", test_sattention_reset_before_conversion)
+    run_test("OpsCounter configurable timestep", test_ops_counter_configurable_timestep)
+    run_test("spiking_softmax no deepcopy", test_spiking_softmax_no_deepcopy)
+    run_test("ModelProfile num_patches", test_model_profile_num_patches)
+    run_test("Config img_size", test_config_img_size)
+    run_test("remove_softmax utility", test_remove_softmax)
+    run_test("SNNWrapper no debug print", test_wrapper_no_debug_print)
+
+    print("\n--- New Fix Verification ---")
+    run_test("IFNeuron default attributes", test_ifneuron_default_attributes)
+    run_test("LLConv2d multistep", test_llconv2d_multistep)
+    run_test("LLLinear multistep", test_lllinear_multistep)
+    run_test("SAttention multistep", test_sattention_multistep)
+    run_test("adapter forward_multistep Sequential", test_adapter_forward_multistep_sequential)
+    run_test("DVS model creation", test_dvs_model_creation)
+    run_test("PTQ conversion", test_ptq_conversion)
 
     print("\n--- Full Pipeline ---")
     run_test("full pipeline", test_full_pipeline)

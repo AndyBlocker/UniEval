@@ -15,7 +15,7 @@ from .spike_utils import spike_rate
 from ..operators.neurons import IFNeuron
 from ..quantization.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
 from ..models.vit import Attention
-from ..registry import OPS_HOOK_REGISTRY
+from ..registry import Registry
 
 
 # ---------------------------------------------------------------------------
@@ -222,14 +222,18 @@ class OpsCounter:
 
     Args:
         custom_hooks: Optional dict of {module_type: hook_fn} to add.
+        time_step: Timestep count per forward pass (used for firing rate
+            normalization). Defaults to 15 for backward compatibility with
+            the original SpikeZIP-TF code.
     """
 
-    def __init__(self, custom_hooks=None):
+    def __init__(self, custom_hooks=None, time_step=15):
         self.modules_mapping = _build_default_modules_mapping()
         if custom_hooks:
             self.modules_mapping.update(custom_hooks)
         self._handles = []
         self._batch_handle = None
+        self.time_step = time_step
 
     def register_hook(self, module_type, hook_fn):
         """Register a SYOPS counting hook for a new module type."""
@@ -277,12 +281,14 @@ class OpsCounter:
 
     def _add_batch_counter(self, model):
         """Add a forward hook that counts batches."""
+        time_step = self.time_step
+
         def batch_counter_hook(module, input, output):
             batch_size = 1
             if len(input) > 0:
                 batch_size = len(input[0])
             module.__batch_counter__ += batch_size
-            module.__times_counter__ += 15  # default timestep count
+            module.__times_counter__ += time_step
 
         self._batch_handle = model.register_forward_hook(batch_counter_hook)
 

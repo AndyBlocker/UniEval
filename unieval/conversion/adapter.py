@@ -110,8 +110,8 @@ class ViTExecutionAdapter(ModelExecutionAdapter):
         T, B = x_seq.shape[:2]
         device = x_seq.device
 
-        # 1. PatchEmbed — Conv2d + reshape
-        x_seq = model.patch_embed.proj.forward_multistep(x_seq)
+        # 1. PatchEmbed — Conv2d + reshape (proj may be nn.Sequential after conversion)
+        x_seq = self._forward_multistep_submodule(model.patch_embed.proj, x_seq)
         x_seq = x_seq.flatten(3).permute(0, 1, 3, 2)  # [T, B, N, D]
 
         # 2. cls_token — only t=0 has value
@@ -136,30 +136,33 @@ class ViTExecutionAdapter(ModelExecutionAdapter):
         # 5. Global pool + Head
         if model.global_pool:
             x_seq = x_seq[:, :, 1:, :].mean(dim=2)  # [T, B, D]
+            x_seq = self._forward_multistep_submodule(model.fc_norm, x_seq)
         else:
             x_seq = self._forward_multistep_submodule(model.norm, x_seq)
             x_seq = x_seq[:, :, 0]  # [T, B, D]
 
-        x_seq = model.head.forward_multistep(x_seq)  # [T, B, num_classes]
+        x_seq = self._forward_multistep_submodule(model.head, x_seq)  # [T, B, num_classes]
         return x_seq
 
     def _forward_multistep_block(self, blk, x_seq):
         """Block-level multi-step forward.
 
         Original Block.forward:
-            x = x + self.attn(self.norm1(x))
-            x = x + self.mlp(self.norm2(x))
+            x = x + self.drop_path(self.attn(self.norm1(x)))
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
         """
-        # norm1 -> attn -> residual
+        # norm1 -> attn -> drop_path -> residual
         residual = x_seq
         x = self._forward_multistep_submodule(blk.norm1, x_seq)
         x = blk.attn.forward_multistep(x)
+        x = self._forward_multistep_submodule(blk.drop_path, x)
         x = residual + x
 
-        # norm2 -> mlp -> residual
+        # norm2 -> mlp -> drop_path -> residual
         residual = x
         x = self._forward_multistep_submodule(blk.norm2, x)
         x = self._forward_multistep_mlp(blk.mlp, x)
+        x = self._forward_multistep_submodule(blk.drop_path, x)
         x = residual + x
         return x
 
@@ -176,10 +179,12 @@ class ViTExecutionAdapter(ModelExecutionAdapter):
             return flat.reshape(T, B, *flat.shape[1:])
 
     def _forward_multistep_mlp(self, mlp, x_seq):
-        """MLP multi-step: fc1 -> act -> fc2, each may be Sequential."""
+        """MLP multi-step: fc1 -> act -> drop -> fc2 -> drop."""
         x_seq = self._forward_multistep_submodule(mlp.fc1, x_seq)
         x_seq = self._forward_multistep_submodule(mlp.act, x_seq)
+        x_seq = self._forward_multistep_submodule(mlp.drop, x_seq)
         x_seq = self._forward_multistep_submodule(mlp.fc2, x_seq)
+        x_seq = self._forward_multistep_submodule(mlp.drop, x_seq)
         return x_seq
 
 
