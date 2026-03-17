@@ -364,9 +364,9 @@ class CausalDecoderAdapter(ModelExecutionAdapter):
         S = x.shape[1] if x.dim() >= 3 else 1
 
         if self.causal_mask is not None:
-            causal_mask = self.causal_mask[:S, :S]
+            causal_mask = self.causal_mask[:S, :S].to(x.device)
         elif hasattr(model, "causal_mask"):
-            causal_mask = model.causal_mask[:S, :S]
+            causal_mask = model.causal_mask[:S, :S].to(x.device)
         else:
             causal_mask = None
 
@@ -391,10 +391,11 @@ class CausalDecoderAdapter(ModelExecutionAdapter):
             output_seq: [T, B, S, vocab_size]
         """
         S = x_seq.shape[2]
+        device = x_seq.device
         if self.causal_mask is not None:
-            causal_mask = self.causal_mask[:S, :S]
+            causal_mask = self.causal_mask[:S, :S].to(device)
         elif hasattr(model, "causal_mask"):
-            causal_mask = model.causal_mask[:S, :S]
+            causal_mask = model.causal_mask[:S, :S].to(device)
         else:
             causal_mask = None
 

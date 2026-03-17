@@ -31,7 +31,9 @@ class PTQQuantizer(BaseQuantizer):
         """Build default PTQ placement rules using PTQQuan."""
 
         def match_block(name, child, parent):
-            return hasattr(child, "attn") and hasattr(child, "mlp")
+            """ViT-style block only (attn.qkv). Decoder blocks use their own rule packs."""
+            return (hasattr(child, "attn") and hasattr(child, "mlp")
+                    and hasattr(child.attn, "qkv"))
 
         def apply_block(name, child, parent, level, is_softmax=True, **kw):
             attn = child.attn
