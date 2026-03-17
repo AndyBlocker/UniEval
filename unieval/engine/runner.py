@@ -5,20 +5,20 @@ import torch.nn as nn
 
 from ..config import UniEvalConfig
 from ..registry import QUANTIZER_REGISTRY, MODEL_PROFILE_REGISTRY, EVALUATOR_REGISTRY
-from ..QANN.quantization.lsq import LSQQuantizer
-from ..QANN.quantization.ptq import PTQQuantizer
-from ..SNN.snnConverter.converter import SNNConverter
-from ..SNN.snnConverter.wrapper import SNNWrapper
-from ..Evaluation.benchmarks.accuracy import AccuracyEvaluator
-from ..Evaluation.energy.energy import EnergyEvaluator
-from ..Evaluation.energy.ops_counter import OpsCounter
-from ..ANN.models.base import ModelProfile
-from ..ANN.models.vit import (
+from ..qann.quantization.lsq import LSQQuantizer
+from ..qann.quantization.ptq import PTQQuantizer
+from ..snn.snnConverter.converter import SNNConverter
+from ..snn.snnConverter.wrapper import SNNWrapper
+from ..evaluation.benchmarks.accuracy import AccuracyEvaluator
+from ..evaluation.energy.energy import EnergyEvaluator
+from ..evaluation.energy.ops_counter import OpsCounter
+from ..ann.models.base import ModelProfile
+from ..ann.models.vit import (
     vit_small_patch16, vit_base_patch16, vit_large_patch16, vit_huge_patch14,
     vit_small_patch16_dvs,
 )
-from ..ANN.models.uniaffine import uniaffine_model, UniAffineConfig
-from ..ANN.models.qwen3 import qwen3_model, Qwen3Config
+from ..ann.models.uniaffine import uniaffine_model, UniAffineConfig
+from ..ann.models.qwen3 import qwen3_model, Qwen3Config
 
 
 # Model factory mapping
@@ -104,10 +104,10 @@ class UniEvalRunner:
             # Use model-specific PTQ rules for decoder models
             rules = None
             if self.config.model_name == "uniaffine":
-                from ..QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+                from ..qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
                 rules = UNIAFFINE_PTQ_RULES
             elif self.config.model_name == "qwen3":
-                from ..QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
+                from ..qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
                 rules = QWEN3_PTQ_RULES
             quantizer = PTQQuantizer(
                 level=qcfg.level,
@@ -239,7 +239,7 @@ class UniEvalRunner:
                 state_dict = state_dict["model"]
             # Apply checkpoint key mapping for decoder models
             if self.config.model_name == "uniaffine":
-                from ..ANN.models.uniaffine import convert_megatron_state_dict
+                from ..ann.models.uniaffine import convert_megatron_state_dict
                 sample_key = next(iter(state_dict.keys()), "")
                 if ("decoder.layers" in sample_key or
                         "embedding.word_embeddings" in sample_key):
@@ -249,7 +249,7 @@ class UniEvalRunner:
                     state_dict = {k: v for k, v in state_dict.items()
                                   if not k.startswith("_unmapped_")}
             elif self.config.model_name == "qwen3":
-                from ..ANN.models.qwen3 import convert_hf_qwen3_state_dict
+                from ..ann.models.qwen3 import convert_hf_qwen3_state_dict
                 sample_key = next(iter(state_dict.keys()), "")
                 if ("layers." in sample_key or "embed_tokens" in sample_key):
                     state_dict = convert_hf_qwen3_state_dict(

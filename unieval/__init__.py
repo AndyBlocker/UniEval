@@ -7,7 +7,7 @@ from .registry import (
     EVALUATOR_REGISTRY,
     MODEL_PROFILE_REGISTRY,
 )
-from .SNN.snnConverter.adapter import ADAPTER_REGISTRY
+from .snn.snnConverter.adapter import ADAPTER_REGISTRY
 from .config import (
     UniEvalConfig,
     QuantConfig,

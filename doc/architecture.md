@@ -58,6 +58,6 @@ ANN 模型 → 量化 → QANN 模型 → [PTQ 校准] → 转换 → SNN Wrappe
 
 添加新模型族需要：ANN 模型定义 → ModelProfile → duck-typing 谓词 → PTQ rule pack → Conversion rule pack → (可选) SNN 算子 / Adapter → Runner dispatch 接线
 
-添加新量化方法：QANN/operators/ 新模块 → QANN/quantization/ 新 Quantizer → (可选) SNN 转换规则
+添加新量化方法：Qann/operators/ 新模块 → qann/quantization/ 新 Quantizer → (可选) SNN 转换规则
 
 添加新评估器：继承 `BaseEvaluator`，用 `@EVALUATOR_REGISTRY.register()` 注册

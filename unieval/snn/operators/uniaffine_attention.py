@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from .base import SNNOperator
 from .neurons import STBIFNeuron, _sequential_multistep
-from ...ANN.operators.rope import apply_rotary_pos_emb
+from ...ann.operators.rope import apply_rotary_pos_emb
 
 
 def multi(x1_t, x2_t, x1_sum_t, x2_sum_t):

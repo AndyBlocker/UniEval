@@ -20,17 +20,17 @@ import torch.nn as nn
 
 from ..benchmarks.base import BaseEvaluator, EvalResult
 from .ops_counter import OpsCounter
-from ...SNN.operators.neurons import IFNeuron
-from ...SNN.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
-from ...SNN.operators.composites import SConv2d, SLinear
-from ...SNN.operators.attention import SAttention
-from ...SNN.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU
-from ...SNN.operators.uniaffine_layers import Spiking_UnifiedClipNorm
-from ...SNN.operators.uniaffine_attention import Spiking_UniAffineAct
-from ...QANN.operators.lsq import MyQuan
-from ...SNN.snnConverter.wrapper import SNNWrapper
+from ...snn.operators.neurons import IFNeuron
+from ...snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
+from ...snn.operators.composites import SConv2d, SLinear
+from ...snn.operators.attention import SAttention
+from ...snn.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU
+from ...snn.operators.uniaffine_layers import Spiking_UnifiedClipNorm
+from ...snn.operators.uniaffine_attention import Spiking_UniAffineAct
+from ...qann.operators.lsq import MyQuan
+from ...snn.snnConverter.wrapper import SNNWrapper
 from ...config import EnergyConfig
-from ...ANN.models.base import ModelProfile
+from ...ann.models.base import ModelProfile
 from ...protocols import (
     is_decoder_profile, is_spiking_decoder_attn_like,
     is_spiking_attention_like,

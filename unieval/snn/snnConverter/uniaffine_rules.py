@@ -17,9 +17,9 @@ from ..operators.layers import LLLinear
 from ..operators.uniaffine_layers import Spiking_UnifiedClipNorm, Spiking_ReGLUMlp
 from ..operators.uniaffine_attention import SpikeUniAffineAttention
 from ...protocols import is_uniaffine_attn_like, is_uclip_like, is_reglu_mlp_like
-from ...QANN.operators.lsq import MyQuan
-from ...QANN.operators.ptq import PTQQuan
-from ...QANN.operators.composites import QNorm
+from ...qann.operators.lsq import MyQuan
+from ...qann.operators.ptq import PTQQuan
+from ...qann.operators.composites import QNorm
 
 
 # ---------------------------------------------------------------------------

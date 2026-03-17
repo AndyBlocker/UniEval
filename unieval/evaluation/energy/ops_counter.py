@@ -12,18 +12,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..feasibility.spike_utils import spike_rate
-from ...SNN.operators.neurons import IFNeuron, ORIIFNeuron
-from ...SNN.operators.layers import LLLinear, LLConv2d, Spiking_LayerNorm
-from ...SNN.operators.composites import SConv2d, SLinear
-from ...SNN.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU, Spiking_SwiGLUMlp
-from ...SNN.operators.uniaffine_layers import Spiking_UnifiedClipNorm, Spiking_ReGLUMlp
-from ...SNN.operators.uniaffine_attention import Spiking_UniAffineAct
-from ...QANN.operators.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
-from ...QANN.operators.ptq import PTQQuan
-from ...QANN.operators.composites import (
+from ...snn.operators.neurons import IFNeuron, ORIIFNeuron
+from ...snn.operators.layers import LLLinear, LLConv2d, Spiking_LayerNorm
+from ...snn.operators.composites import SConv2d, SLinear
+from ...snn.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU, Spiking_SwiGLUMlp
+from ...snn.operators.uniaffine_layers import Spiking_UnifiedClipNorm, Spiking_ReGLUMlp
+from ...snn.operators.uniaffine_attention import Spiking_UniAffineAct
+from ...qann.operators.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
+from ...qann.operators.ptq import PTQQuan
+from ...qann.operators.composites import (
     QConv2d as QCompConv2d, QLinear as QCompLinear, QNorm,
 )
-from ...ANN.models.vit import Attention
+from ...ann.models.vit import Attention
 from ...registry import Registry
 
 

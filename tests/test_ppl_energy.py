@@ -42,7 +42,7 @@ def run_test(name, fn):
 # ===== Helpers =====
 
 def _small_qwen3():
-    from unieval.ANN.models.qwen3 import Qwen3Model, Qwen3Config
+    from unieval.ann.models.qwen3 import Qwen3Model, Qwen3Config
     cfg = Qwen3Config(
         vocab_size=256, num_layers=2, hidden_size=64,
         ffn_hidden_size=128, num_heads=4, num_kv_heads=2,
@@ -52,7 +52,7 @@ def _small_qwen3():
 
 
 def _small_uniaffine():
-    from unieval.ANN.models.uniaffine import UniAffineModel, UniAffineConfig
+    from unieval.ann.models.uniaffine import UniAffineModel, UniAffineConfig
     cfg = UniAffineConfig(
         vocab_size=256, num_layers=2, hidden_size=64,
         ffn_hidden_size=128, num_heads=4, num_kv_heads=2,
@@ -62,7 +62,7 @@ def _small_uniaffine():
 
 
 def _small_vit():
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.ann.models.vit import vit_small_patch16
     return vit_small_patch16(
         num_classes=10,
         global_pool=True,
@@ -93,7 +93,7 @@ def _vit_dataloader(batch_size=2, num_batches=3):
 # ===== Test 1: Decoder PPL (ANN) =====
 
 def test_qwen3_ann_ppl():
-    from unieval.Evaluation.benchmarks.perplexity import PerplexityEvaluator
+    from unieval.evaluation.benchmarks.perplexity import PerplexityEvaluator
 
     model = _small_qwen3().eval()
     dl = _decoder_dataloader()
@@ -108,7 +108,7 @@ def test_qwen3_ann_ppl():
 
 
 def test_uniaffine_ann_ppl():
-    from unieval.Evaluation.benchmarks.perplexity import PerplexityEvaluator
+    from unieval.evaluation.benchmarks.perplexity import PerplexityEvaluator
 
     model = _small_uniaffine().eval()
     dl = _decoder_dataloader()
@@ -125,9 +125,9 @@ def test_uniaffine_ann_ppl():
 # ===== Test 2: Decoder PPL (QANN) =====
 
 def test_qwen3_qann_ppl():
-    from unieval.Evaluation.benchmarks.perplexity import PerplexityEvaluator
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.evaluation.benchmarks.perplexity import PerplexityEvaluator
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
 
     model = _small_qwen3().eval()
 
@@ -150,9 +150,9 @@ def test_qwen3_qann_ppl():
 
 
 def test_uniaffine_qann_ppl():
-    from unieval.Evaluation.benchmarks.perplexity import PerplexityEvaluator
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+    from unieval.evaluation.benchmarks.perplexity import PerplexityEvaluator
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
 
     model = _small_uniaffine().eval()
 
@@ -177,10 +177,10 @@ def test_uniaffine_qann_ppl():
 # ===== Test 3: Decoder PPL (SNN via SNNWrapper) =====
 
 def test_qwen3_snn_ppl():
-    from unieval.Evaluation.benchmarks.perplexity import PerplexityEvaluator
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
+    from unieval.evaluation.benchmarks.perplexity import PerplexityEvaluator
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
 
     model = _small_qwen3().eval()
 
@@ -218,10 +218,10 @@ def test_qwen3_snn_ppl():
 
 
 def test_uniaffine_snn_ppl():
-    from unieval.Evaluation.benchmarks.perplexity import PerplexityEvaluator
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
+    from unieval.evaluation.benchmarks.perplexity import PerplexityEvaluator
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
 
     model = _small_uniaffine().eval()
 
@@ -260,13 +260,13 @@ def test_uniaffine_snn_ppl():
 # ===== Test 4: Energy & OpsCounter =====
 
 def test_qwen3_snn_energy():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
-    from unieval.Evaluation.energy.energy import EnergyEvaluator
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.evaluation.energy.ops_counter import OpsCounter
+    from unieval.evaluation.energy.energy import EnergyEvaluator
     from unieval.config import EnergyConfig
-    from unieval.ANN.models.base import DecoderModelProfile
+    from unieval.ann.models.base import DecoderModelProfile
 
     model = _small_qwen3().eval()
 
@@ -331,13 +331,13 @@ def test_qwen3_snn_energy():
 
 
 def test_uniaffine_snn_energy():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
-    from unieval.Evaluation.energy.energy import EnergyEvaluator
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.evaluation.energy.ops_counter import OpsCounter
+    from unieval.evaluation.energy.energy import EnergyEvaluator
     from unieval.config import EnergyConfig
-    from unieval.ANN.models.base import DecoderModelProfile
+    from unieval.ann.models.base import DecoderModelProfile
 
     model = _small_uniaffine().eval()
 
@@ -401,12 +401,12 @@ def test_uniaffine_snn_energy():
 
 
 def test_vit_snn_energy():
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
-    from unieval.Evaluation.energy.energy import EnergyEvaluator
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.evaluation.energy.ops_counter import OpsCounter
+    from unieval.evaluation.energy.energy import EnergyEvaluator
     from unieval.config import EnergyConfig
-    from unieval.ANN.models.base import ModelProfile
+    from unieval.ann.models.base import ModelProfile
 
     model = _small_vit().eval()
     quantizer = LSQQuantizer(level=16, is_softmax=True)
@@ -455,10 +455,10 @@ def test_vit_snn_energy():
 
 def test_decoder_ops_hook_coverage():
     """Verify that OpsCounter can attach hooks to all decoder SNN module types."""
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.evaluation.energy.ops_counter import OpsCounter
 
     model = _small_qwen3().eval()
 

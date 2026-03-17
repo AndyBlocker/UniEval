@@ -42,7 +42,7 @@ def run_test(name, fn):
 # ===== Helper: small model configs for fast testing =====
 
 def _small_qwen3():
-    from unieval.ANN.models.qwen3 import Qwen3Model, Qwen3Config
+    from unieval.ann.models.qwen3 import Qwen3Model, Qwen3Config
     cfg = Qwen3Config(
         vocab_size=256, num_layers=2, hidden_size=64,
         ffn_hidden_size=128, num_heads=4, num_kv_heads=2,
@@ -52,7 +52,7 @@ def _small_qwen3():
 
 
 def _small_uniaffine():
-    from unieval.ANN.models.uniaffine import UniAffineModel, UniAffineConfig
+    from unieval.ann.models.uniaffine import UniAffineModel, UniAffineConfig
     cfg = UniAffineConfig(
         vocab_size=256, num_layers=2, hidden_size=64,
         ffn_hidden_size=128, num_heads=4, num_kv_heads=2,
@@ -64,9 +64,9 @@ def _small_uniaffine():
 # ===== Test 1: PTQ places 6 quantizers inside attention =====
 
 def test_qwen3_ptq_quantizers():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES, QQwen3Attention
-    from unieval.QANN.operators.ptq import PTQQuan
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES, QQwen3Attention
+    from unieval.qann.operators.ptq import PTQQuan
 
     model = _small_qwen3()
 
@@ -90,9 +90,9 @@ def test_qwen3_ptq_quantizers():
 
 
 def test_uniaffine_ptq_quantizers():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES, QUniAffineAttention
-    from unieval.QANN.operators.ptq import PTQQuan
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES, QUniAffineAttention
+    from unieval.qann.operators.ptq import PTQQuan
 
     model = _small_uniaffine()
 
@@ -117,8 +117,8 @@ def test_uniaffine_ptq_quantizers():
 # ===== Test 2: Protocols still match after PTQ =====
 
 def test_protocols_after_qwen3_ptq():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
     from unieval.protocols import (
         is_softmax_decoder_attn_like, is_qwen3_block_like, is_qwen3_model_like,
     )
@@ -141,8 +141,8 @@ def test_protocols_after_qwen3_ptq():
 
 
 def test_protocols_after_uniaffine_ptq():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
     from unieval.protocols import (
         is_uniaffine_attn_like, is_uniaffine_block_like,
     )
@@ -165,8 +165,8 @@ def test_protocols_after_uniaffine_ptq():
 # ===== Test 3: ANN vs QANN forward (quantized model runs correctly) =====
 
 def test_qwen3_ann_vs_qann():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
     from copy import deepcopy
 
     model = _small_qwen3().eval()
@@ -197,8 +197,8 @@ def test_qwen3_ann_vs_qann():
 
 
 def test_uniaffine_ann_vs_qann():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
     from copy import deepcopy
 
     model = _small_uniaffine().eval()
@@ -231,12 +231,12 @@ def test_uniaffine_ann_vs_qann():
 # ===== Test 4: QANN -> SNN threshold transfer =====
 
 def test_qwen3_threshold_transfer():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.snnConverter.qwen3_rules import QWEN3_CONVERSION_RULES
-    from unieval.SNN.snnConverter.rules import DEFAULT_CONVERSION_RULES
-    from unieval.SNN.operators.qwen3_attention import SQwen3Attention
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.snnConverter.qwen3_rules import QWEN3_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
+    from unieval.snn.operators.qwen3_attention import SQwen3Attention
 
     model = _small_qwen3().eval()
     input_ids = torch.randint(0, 256, (1, 16))
@@ -276,12 +276,12 @@ def test_qwen3_threshold_transfer():
 
 
 def test_uniaffine_threshold_transfer():
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.snnConverter.uniaffine_rules import UNIAFFINE_CONVERSION_RULES
-    from unieval.SNN.snnConverter.rules import DEFAULT_CONVERSION_RULES
-    from unieval.SNN.operators.uniaffine_attention import SpikeUniAffineAttention
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.snnConverter.uniaffine_rules import UNIAFFINE_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
+    from unieval.snn.operators.uniaffine_attention import SpikeUniAffineAttention
 
     model = _small_uniaffine().eval()
     input_ids = torch.randint(0, 256, (1, 16))
@@ -316,12 +316,12 @@ def test_uniaffine_threshold_transfer():
 
 def test_qwen3_qann_vs_snn():
     """End-to-end: calibrate QANN, convert to SNN, compare outputs."""
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.qwen3_rules import QWEN3_PTQ_RULES
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper, reset_model
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.snnConverter.qwen3_rules import QWEN3_CONVERSION_RULES
-    from unieval.SNN.snnConverter.rules import DEFAULT_CONVERSION_RULES
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
+    from unieval.snn.snnConverter.wrapper import SNNWrapper, reset_model
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.snnConverter.qwen3_rules import QWEN3_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
     from copy import deepcopy
 
     torch.manual_seed(42)
@@ -380,12 +380,12 @@ def test_qwen3_qann_vs_snn():
 
 def test_uniaffine_qann_vs_snn():
     """End-to-end: calibrate QANN, convert to SNN, compare outputs."""
-    from unieval.QANN.quantization.base import BaseQuantizer
-    from unieval.QANN.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper, reset_model
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.snnConverter.uniaffine_rules import UNIAFFINE_CONVERSION_RULES
-    from unieval.SNN.snnConverter.rules import DEFAULT_CONVERSION_RULES
+    from unieval.qann.quantization.base import BaseQuantizer
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
+    from unieval.snn.snnConverter.wrapper import SNNWrapper, reset_model
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.snnConverter.uniaffine_rules import UNIAFFINE_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
     from copy import deepcopy
 
     torch.manual_seed(42)

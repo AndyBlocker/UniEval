@@ -63,25 +63,25 @@ def test_core_imports():
 
 
 def test_operator_imports():
-    from unieval.SNN.operators.base import SNNOperator
-    from unieval.SNN.operators.neurons import IFNeuron, ORIIFNeuron
-    from unieval.SNN.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm, SpikeMaxPooling
-    from unieval.SNN.operators.attention import SAttention, spiking_softmax, multi, multi1
+    from unieval.snn.operators.base import SNNOperator
+    from unieval.snn.operators.neurons import IFNeuron, ORIIFNeuron
+    from unieval.snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm, SpikeMaxPooling
+    from unieval.snn.operators.attention import SAttention, spiking_softmax, multi, multi1
 
 
 def test_quantization_imports():
-    from unieval.QANN.quantization.base import BaseQuantizer, QuantPlacementRule
-    from unieval.QANN.operators.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.QANN.operators.ptq import PTQQuan
-    from unieval.QANN.quantization.ptq import PTQQuantizer
+    from unieval.qann.quantization.base import BaseQuantizer, QuantPlacementRule
+    from unieval.qann.operators.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.qann.operators.ptq import PTQQuan
+    from unieval.qann.quantization.ptq import PTQQuantizer
 
 
 def test_conversion_imports():
-    from unieval.SNN.snnConverter.rules import ConversionRule, DEFAULT_CONVERSION_RULES
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper, Judger, reset_model, attn_convert
-    from unieval.SNN.snnConverter.adapter import (
+    from unieval.snn.snnConverter.rules import ConversionRule, DEFAULT_CONVERSION_RULES
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.snnConverter.wrapper import SNNWrapper, Judger, reset_model, attn_convert
+    from unieval.snn.snnConverter.adapter import (
         ADAPTER_REGISTRY, ModelExecutionAdapter, ViTExecutionAdapter, DefaultExecutionAdapter,
     )
     assert "vit" in ADAPTER_REGISTRY
@@ -89,17 +89,17 @@ def test_conversion_imports():
 
 
 def test_evaluation_imports():
-    from unieval.Evaluation.benchmarks.base import EvalResult, BaseEvaluator
-    from unieval.Evaluation.feasibility.spike_utils import spike_rate
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
-    from unieval.Evaluation.benchmarks.accuracy import AccuracyEvaluator
-    from unieval.Evaluation.energy.energy import EnergyEvaluator
+    from unieval.evaluation.benchmarks.base import EvalResult, BaseEvaluator
+    from unieval.evaluation.feasibility.spike_utils import spike_rate
+    from unieval.evaluation.energy.ops_counter import OpsCounter
+    from unieval.evaluation.benchmarks.accuracy import AccuracyEvaluator
+    from unieval.evaluation.energy.energy import EnergyEvaluator
 
 
 def test_model_imports():
-    from unieval.ANN.models.base import ModelProfile
-    from unieval.ANN.models.vit import VisionTransformer, VisionTransformerDVS
-    from unieval.ANN.models.vit import vit_small_patch16, vit_base_patch16
+    from unieval.ann.models.base import ModelProfile
+    from unieval.ann.models.vit import VisionTransformer, VisionTransformerDVS
+    from unieval.ann.models.vit import vit_small_patch16, vit_base_patch16
 
 
 def test_engine_imports():
@@ -194,7 +194,7 @@ def test_config_custom():
 
 def test_ifneuron_forward():
     import torch
-    from unieval.SNN.operators.neurons import IFNeuron
+    from unieval.snn.operators.neurons import IFNeuron
 
     neuron = IFNeuron(q_threshold=torch.tensor(0.5), level=16, sym=True)
     x = torch.randn(2, 4)
@@ -209,7 +209,7 @@ def test_ifneuron_forward():
 
 def test_oriifneuron_forward():
     import torch
-    from unieval.SNN.operators.neurons import ORIIFNeuron
+    from unieval.snn.operators.neurons import ORIIFNeuron
 
     neuron = ORIIFNeuron(q_threshold=torch.tensor(0.5), level=16)
     x = torch.randn(2, 4).abs()  # unsigned
@@ -219,7 +219,7 @@ def test_oriifneuron_forward():
 
 def test_spiking_layernorm():
     import torch
-    from unieval.SNN.operators.layers import Spiking_LayerNorm
+    from unieval.snn.operators.layers import Spiking_LayerNorm
 
     sln = Spiking_LayerNorm(dim=8)
     x = torch.randn(2, 4, 8)
@@ -234,7 +234,7 @@ def test_spiking_layernorm():
 def test_lllinear():
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.layers import LLLinear
+    from unieval.snn.operators.layers import LLLinear
 
     linear = nn.Linear(8, 4)
     ll = LLLinear(linear, neuron_type="ST-BIF", level=16)
@@ -252,7 +252,7 @@ def test_lllinear():
 def test_llconv2d():
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.layers import LLConv2d
+    from unieval.snn.operators.layers import LLConv2d
 
     conv = nn.Conv2d(3, 16, 3, padding=1)
     ll = LLConv2d(conv, neuron_type="ST-BIF", level=16)
@@ -266,7 +266,7 @@ def test_llconv2d():
 
 def test_spiking_softmax():
     import torch
-    from unieval.SNN.operators.attention import spiking_softmax
+    from unieval.snn.operators.attention import spiking_softmax
 
     ssm = spiking_softmax()
     x = torch.randn(2, 4, 4)
@@ -278,7 +278,7 @@ def test_spiking_softmax():
 
 def test_sattention():
     import torch
-    from unieval.SNN.operators.attention import SAttention
+    from unieval.snn.operators.attention import SAttention
 
     sa = SAttention(dim=64, num_heads=4, level=16)
     x = torch.randn(1, 8, 64)
@@ -289,7 +289,7 @@ def test_sattention():
 def test_spike_max_pooling():
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.layers import SpikeMaxPooling
+    from unieval.snn.operators.layers import SpikeMaxPooling
 
     pool = SpikeMaxPooling(nn.MaxPool2d(2))
     x = torch.randn(1, 3, 4, 4)
@@ -302,7 +302,7 @@ def test_spike_max_pooling():
 
 def test_myquan_full_precision():
     import torch
-    from unieval.QANN.operators.lsq import MyQuan
+    from unieval.qann.operators.lsq import MyQuan
 
     mq = MyQuan(level=512, sym=True)
     x = torch.randn(2, 4)
@@ -312,7 +312,7 @@ def test_myquan_full_precision():
 
 def test_myquan_quantize():
     import torch
-    from unieval.QANN.operators.lsq import MyQuan
+    from unieval.qann.operators.lsq import MyQuan
 
     mq = MyQuan(level=16, sym=True)
     mq.eval()  # skip init_state logic
@@ -325,7 +325,7 @@ def test_myquan_quantize():
 
 def test_qattention():
     import torch
-    from unieval.QANN.operators.lsq import QAttention
+    from unieval.qann.operators.lsq import QAttention
 
     qa = QAttention(dim=64, num_heads=4, qkv_bias=True, level=16)
     qa.eval()
@@ -343,8 +343,8 @@ def test_lsq_quantizer():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.ann.models.vit import vit_small_patch16
 
     model = vit_small_patch16(
         num_classes=10,
@@ -356,7 +356,7 @@ def test_lsq_quantizer():
     model = quantizer.quantize_model(model)
 
     # Verify QAttention was placed in blocks
-    from unieval.QANN.operators.lsq import QAttention, MyQuan
+    from unieval.qann.operators.lsq import QAttention, MyQuan
     found_qattn = False
     found_myquan = False
     for name, m in model.named_modules():
@@ -370,7 +370,7 @@ def test_lsq_quantizer():
 
 def test_ptq_quan():
     import torch
-    from unieval.QANN.operators.ptq import PTQQuan
+    from unieval.qann.operators.ptq import PTQQuan
 
     pq = PTQQuan(level=16, sym=True)
     assert pq.calibrated == False
@@ -382,7 +382,7 @@ def test_ptq_quan():
 # ===== Test 6: Conversion =====
 
 def test_conversion_rules():
-    from unieval.SNN.snnConverter.rules import DEFAULT_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
     assert len(DEFAULT_CONVERSION_RULES) == 9
     names = [r.name for r in DEFAULT_CONVERSION_RULES]
     assert "qattention_to_sattention" in names
@@ -398,12 +398,12 @@ def test_snn_converter():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.operators.neurons import IFNeuron
-    from unieval.SNN.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
-    from unieval.SNN.operators.attention import SAttention
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.operators.neurons import IFNeuron
+    from unieval.snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
+    from unieval.snn.operators.attention import SAttention
+    from unieval.ann.models.vit import vit_small_patch16
 
     model = vit_small_patch16(
         num_classes=10,
@@ -444,9 +444,9 @@ def test_snn_wrapper_analog():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.ann.models.vit import vit_small_patch16
 
     model = vit_small_patch16(
         num_classes=10,
@@ -481,7 +481,7 @@ def test_snn_wrapper_analog():
 
 def test_spike_rate_spiking():
     import torch
-    from unieval.Evaluation.feasibility.spike_utils import spike_rate
+    from unieval.evaluation.feasibility.spike_utils import spike_rate
 
     # Spiking input: only {-1, 0, 1}
     x = torch.tensor([[-1.0, 0, 1, 0], [0, 0, 1, -1]])
@@ -492,7 +492,7 @@ def test_spike_rate_spiking():
 
 def test_spike_rate_non_spiking():
     import torch
-    from unieval.Evaluation.feasibility.spike_utils import spike_rate
+    from unieval.evaluation.feasibility.spike_utils import spike_rate
 
     # Non-spiking input: continuous values
     x = torch.randn(4, 8)
@@ -503,7 +503,7 @@ def test_spike_rate_non_spiking():
 
 def test_spike_rate_zero():
     import torch
-    from unieval.Evaluation.feasibility.spike_utils import spike_rate
+    from unieval.evaluation.feasibility.spike_utils import spike_rate
 
     x = torch.zeros(4, 8)
     is_spike, rate, _ = spike_rate(x)
@@ -514,7 +514,7 @@ def test_spike_rate_zero():
 def test_ops_counter():
     import torch
     import torch.nn as nn
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
+    from unieval.evaluation.energy.ops_counter import OpsCounter
 
     model = nn.Sequential(
         nn.Linear(8, 4),
@@ -533,7 +533,7 @@ def test_ops_counter():
 
 
 def test_eval_result():
-    from unieval.Evaluation.benchmarks.base import EvalResult
+    from unieval.evaluation.benchmarks.base import EvalResult
     result = EvalResult(
         metrics={"top1": 75.5, "top5": 92.3},
         details={"layers": []},
@@ -549,7 +549,7 @@ def test_vit_small_creation():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.ann.models.vit import vit_small_patch16
 
     model = vit_small_patch16(
         num_classes=10,
@@ -567,7 +567,7 @@ def test_vit_small_creation():
 def test_spiking_layernorm_multistep():
     """Spiking_LayerNorm.forward_multistep ≡ sequential single-step."""
     import torch
-    from unieval.SNN.operators.layers import Spiking_LayerNorm
+    from unieval.snn.operators.layers import Spiking_LayerNorm
 
     sln1 = Spiking_LayerNorm(dim=8)
     sln2 = Spiking_LayerNorm(dim=8)
@@ -594,7 +594,7 @@ def test_spiking_layernorm_multistep():
 def test_spiking_layernorm_multistep_from_state():
     """forward_multistep works from non-initial state (strong contract)."""
     import torch
-    from unieval.SNN.operators.layers import Spiking_LayerNorm
+    from unieval.snn.operators.layers import Spiking_LayerNorm
 
     sln1 = Spiking_LayerNorm(dim=8)
     sln2 = Spiking_LayerNorm(dim=8)
@@ -620,7 +620,7 @@ def test_spike_max_pooling_multistep():
     """SpikeMaxPooling.forward_multistep ≡ sequential single-step."""
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.layers import SpikeMaxPooling
+    from unieval.snn.operators.layers import SpikeMaxPooling
 
     pool1 = SpikeMaxPooling(nn.MaxPool2d(2))
     pool2 = SpikeMaxPooling(nn.MaxPool2d(2))
@@ -642,7 +642,7 @@ def test_spike_max_pooling_multistep():
 def test_spiking_softmax_multistep():
     """spiking_softmax.forward_multistep ≡ sequential single-step."""
     import torch
-    from unieval.SNN.operators.attention import spiking_softmax
+    from unieval.snn.operators.attention import spiking_softmax
 
     ssm1 = spiking_softmax()
     ssm2 = spiking_softmax()
@@ -663,7 +663,7 @@ def test_spiking_softmax_multistep():
 def test_ifneuron_multistep_fallback():
     """IFNeuron.forward_multistep uses default for-loop (inherits from SNNOperator)."""
     import torch
-    from unieval.SNN.operators.neurons import IFNeuron
+    from unieval.snn.operators.neurons import IFNeuron
 
     n1 = IFNeuron(q_threshold=torch.tensor(0.5), level=16, sym=True)
     n2 = IFNeuron(q_threshold=torch.tensor(0.5), level=16, sym=True)
@@ -681,9 +681,9 @@ def test_ifneuron_multistep_fallback():
 def test_participates_in_early_stop_flags():
     """Verify participates_in_early_stop is set correctly per operator type."""
     import torch
-    from unieval.SNN.operators.neurons import IFNeuron, ORIIFNeuron
-    from unieval.SNN.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm, SpikeMaxPooling
-    from unieval.SNN.operators.attention import SAttention, spiking_softmax
+    from unieval.snn.operators.neurons import IFNeuron, ORIIFNeuron
+    from unieval.snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm, SpikeMaxPooling
+    from unieval.snn.operators.attention import SAttention, spiking_softmax
     import torch.nn as nn
 
     # Should participate in early stop
@@ -701,7 +701,7 @@ def test_participates_in_early_stop_flags():
 
 def test_working_property_defensive():
     """working property raises if participates_in_early_stop=True but no is_work."""
-    from unieval.SNN.operators.base import SNNOperator
+    from unieval.snn.operators.base import SNNOperator
 
     class BadOperator(SNNOperator):
         participates_in_early_stop = True
@@ -721,9 +721,9 @@ def test_judger_precache():
     """Judger caches early-stop operators at init time."""
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.neurons import IFNeuron
-    from unieval.SNN.operators.layers import Spiking_LayerNorm
-    from unieval.SNN.snnConverter.wrapper import Judger
+    from unieval.snn.operators.neurons import IFNeuron
+    from unieval.snn.operators.layers import Spiking_LayerNorm
+    from unieval.snn.snnConverter.wrapper import Judger
 
     model = nn.Sequential(
         IFNeuron(torch.tensor(0.5), level=16, sym=True),
@@ -738,10 +738,10 @@ def test_reset_model_flat():
     """reset_model uses flat traversal and resets all SNNOperator instances."""
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.neurons import IFNeuron
-    from unieval.SNN.operators.layers import Spiking_LayerNorm
-    from unieval.SNN.operators.attention import spiking_softmax
-    from unieval.SNN.snnConverter.wrapper import reset_model
+    from unieval.snn.operators.neurons import IFNeuron
+    from unieval.snn.operators.layers import Spiking_LayerNorm
+    from unieval.snn.operators.attention import spiking_softmax
+    from unieval.snn.snnConverter.wrapper import reset_model
 
     model = nn.Sequential(
         IFNeuron(torch.tensor(0.5), level=16, sym=True),
@@ -767,11 +767,11 @@ def test_reset_model_flat():
 def test_encode_sequence_analog():
     """encode_sequence with analog encoding: [x, 0, 0, ...]."""
     import torch
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.ann.models.vit import vit_small_patch16
 
     model = vit_small_patch16(
         num_classes=10, global_pool=True,
@@ -795,11 +795,11 @@ def test_encode_sequence_analog():
 def test_encode_sequence_rate():
     """encode_sequence with rate encoding: uniform division."""
     import torch
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.ann.models.vit import vit_small_patch16
 
     model = vit_small_patch16(
         num_classes=10, global_pool=True,
@@ -825,9 +825,9 @@ def test_step_encoded_api():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.ann.models.vit import vit_small_patch16
 
     model = vit_small_patch16(
         num_classes=10, global_pool=True,
@@ -860,9 +860,9 @@ def test_step_encoded_vs_run_auto():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.ANN.models.vit import VisionTransformer
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.ann.models.vit import VisionTransformer
 
     model = VisionTransformer(
         img_size=32, patch_size=8, in_chans=3, num_classes=10,
@@ -915,7 +915,7 @@ def test_step_encoded_vs_run_auto():
 def test_myquan_device_agnostic():
     """MyQuan init_state should use x.device, not hardcoded .cuda()."""
     import torch
-    from unieval.QANN.operators.lsq import MyQuan
+    from unieval.qann.operators.lsq import MyQuan
 
     mq = MyQuan(level=16, sym=True)
     mq.train()
@@ -929,7 +929,7 @@ def test_myquan_device_agnostic():
 def test_sattention_reset_before_conversion():
     """SAttention.reset() should not crash when qkv/proj are still nn.Linear."""
     import torch
-    from unieval.SNN.operators.attention import SAttention
+    from unieval.snn.operators.attention import SAttention
 
     sa = SAttention(dim=64, num_heads=4, level=16)
     x = torch.randn(1, 8, 64)
@@ -942,7 +942,7 @@ def test_ops_counter_configurable_timestep():
     """OpsCounter should use configurable time_step, not hardcoded 15."""
     import torch
     import torch.nn as nn
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
+    from unieval.evaluation.energy.ops_counter import OpsCounter
 
     model = nn.Sequential(nn.Linear(8, 4), nn.ReLU())
     counter = OpsCounter(time_step=32)
@@ -959,7 +959,7 @@ def test_ops_counter_configurable_timestep():
 def test_spiking_softmax_no_deepcopy():
     """spiking_softmax should use detach().clone() instead of deepcopy."""
     import torch
-    from unieval.SNN.operators.attention import spiking_softmax
+    from unieval.snn.operators.attention import spiking_softmax
 
     ssm = spiking_softmax()
     x = torch.randn(2, 4, 4)
@@ -973,7 +973,7 @@ def test_spiking_softmax_no_deepcopy():
 
 def test_model_profile_num_patches():
     """ModelProfile should compute num_patches from img_size and patch_size."""
-    from unieval.ANN.models.base import ModelProfile
+    from unieval.ann.models.base import ModelProfile
 
     profile = ModelProfile(
         depth=12, num_heads=6, embed_dim=384,
@@ -1000,7 +1000,7 @@ def test_remove_softmax():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.ANN.models.vit import (
+    from unieval.ann.models.vit import (
         vit_small_patch16, Attention, Attention_no_softmax, remove_softmax,
     )
 
@@ -1028,9 +1028,9 @@ def test_wrapper_no_debug_print(capsys=None):
     from functools import partial
     from io import StringIO
     import sys
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.ANN.models.vit import VisionTransformer
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.ann.models.vit import VisionTransformer
 
     model = VisionTransformer(
         img_size=32, patch_size=8, in_chans=3, num_classes=10,
@@ -1069,7 +1069,7 @@ def test_wrapper_no_debug_print(capsys=None):
 def test_ifneuron_default_attributes():
     """IFNeuron should have neuron_type and is_init attributes by default."""
     import torch
-    from unieval.SNN.operators.neurons import IFNeuron, ORIIFNeuron
+    from unieval.snn.operators.neurons import IFNeuron, ORIIFNeuron
 
     n = IFNeuron(q_threshold=torch.tensor(0.5), level=16, sym=True)
     assert n.neuron_type == "IF"
@@ -1084,7 +1084,7 @@ def test_llconv2d_multistep():
     """LLConv2d.forward_multistep uses pre-allocated output."""
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.layers import LLConv2d
+    from unieval.snn.operators.layers import LLConv2d
 
     conv = nn.Conv2d(3, 8, 3, padding=1)
     ll = LLConv2d(conv, neuron_type="ST-BIF", level=16)
@@ -1113,7 +1113,7 @@ def test_lllinear_multistep():
     """LLLinear.forward_multistep uses pre-allocated output."""
     import torch
     import torch.nn as nn
-    from unieval.SNN.operators.layers import LLLinear
+    from unieval.snn.operators.layers import LLLinear
 
     linear = nn.Linear(8, 4)
     ll = LLLinear(linear, neuron_type="ST-BIF", level=16)
@@ -1128,7 +1128,7 @@ def test_lllinear_multistep():
 def test_sattention_multistep():
     """SAttention.forward_multistep uses pre-allocated output."""
     import torch
-    from unieval.SNN.operators.attention import SAttention
+    from unieval.snn.operators.attention import SAttention
 
     sa = SAttention(dim=32, num_heads=2, level=16)
     T = 3
@@ -1142,9 +1142,9 @@ def test_adapter_forward_multistep_sequential():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.ANN.models.vit import VisionTransformer
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.ann.models.vit import VisionTransformer
 
     model = VisionTransformer(
         img_size=32, patch_size=8, in_chans=3, num_classes=10,
@@ -1165,7 +1165,7 @@ def test_adapter_forward_multistep_sequential():
     ).eval()
 
     # After conversion, patch_embed.proj should be SConv2d (composite operator)
-    from unieval.SNN.operators.composites import SConv2d
+    from unieval.snn.operators.composites import SConv2d
     assert isinstance(wrapper.model.patch_embed.proj, SConv2d), \
         f"Expected SConv2d, got {type(wrapper.model.patch_embed.proj)}"
 
@@ -1201,11 +1201,11 @@ def test_ptq_conversion():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.QANN.quantization.ptq import PTQQuantizer
-    from unieval.QANN.operators.ptq import PTQQuan
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.operators.neurons import IFNeuron
-    from unieval.ANN.models.vit import VisionTransformer
+    from unieval.qann.quantization.ptq import PTQQuantizer
+    from unieval.qann.operators.ptq import PTQQuan
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.operators.neurons import IFNeuron
+    from unieval.ann.models.vit import VisionTransformer
 
     model = VisionTransformer(
         img_size=32, patch_size=8, in_chans=3, num_classes=10,

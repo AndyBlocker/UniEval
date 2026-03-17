@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .base import BaseEvaluator, EvalResult
-from ...SNN.snnConverter.wrapper import SNNWrapper
+from ...snn.snnConverter.wrapper import SNNWrapper
 from ...registry import EVALUATOR_REGISTRY
 
 

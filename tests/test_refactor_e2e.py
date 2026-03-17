@@ -41,10 +41,10 @@ def run_test(name, fn):
 
 def test_new_imports():
     """Verify all new modules import correctly."""
-    from unieval.SNN.snnConverter.threshold import transfer_threshold
-    from unieval.SNN.operators.composites import SConv2d, SLinear
-    from unieval.QANN.operators.composites import QConv2d, QLinear, QNorm
-    from unieval.SNN.snnConverter.adapter import (
+    from unieval.snn.snnConverter.threshold import transfer_threshold
+    from unieval.snn.operators.composites import SConv2d, SLinear
+    from unieval.qann.operators.composites import QConv2d, QLinear, QNorm
+    from unieval.snn.snnConverter.adapter import (
         auto_detect_adapter, CausalDecoderAdapter, UniAffineExecutionAdapter,
     )
     from unieval.protocols import is_spiking_attention_like
@@ -55,7 +55,7 @@ def test_new_imports():
 
 def test_ann_forward():
     """Create ViT, forward random input, verify output shape."""
-    from unieval.ANN.models.vit import vit_small_patch16
+    from unieval.ann.models.vit import vit_small_patch16
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     model.eval()
     x = torch.randn(2, 3, 224, 224)
@@ -68,9 +68,9 @@ def test_ann_forward():
 
 def test_lsq_quantization_structure():
     """After LSQ quantization, verify QConv2d/QNorm/QLinear are present."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.QANN.quantization.lsq import LSQQuantizer
-    from unieval.QANN.operators.composites import QConv2d, QLinear, QNorm
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.qann.quantization.lsq import LSQQuantizer
+    from unieval.qann.operators.composites import QConv2d, QLinear, QNorm
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     quantizer = LSQQuantizer(level=16, is_softmax=True)
@@ -100,9 +100,9 @@ def test_lsq_quantization_structure():
 
 def test_ptq_quantization_structure():
     """After PTQ quantization, verify QConv2d/QNorm/QLinear are present."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.QANN.quantization.ptq import PTQQuantizer
-    from unieval.QANN.operators.composites import QConv2d, QLinear, QNorm
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.qann.quantization.ptq import PTQQuantizer
+    from unieval.qann.operators.composites import QConv2d, QLinear, QNorm
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     quantizer = PTQQuantizer(level=16, is_softmax=True)
@@ -122,11 +122,11 @@ def test_ptq_quantization_structure():
 
 def test_conversion_structure():
     """After conversion, verify SConv2d/SLinear are present."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.QANN.quantization.ptq import PTQQuantizer
-    from unieval.SNN.snnConverter.converter import SNNConverter
-    from unieval.SNN.operators.composites import SConv2d, SLinear
-    from unieval.SNN.operators.attention import SAttention
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.qann.quantization.ptq import PTQQuantizer
+    from unieval.snn.snnConverter.converter import SNNConverter
+    from unieval.snn.operators.composites import SConv2d, SLinear
+    from unieval.snn.operators.attention import SAttention
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     PTQQuantizer(level=16, is_softmax=True).quantize_model(model)
@@ -152,8 +152,8 @@ def test_conversion_structure():
 
 def test_adapter_auto_detection():
     """Verify adapter auto-detection works via duck-typing."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.SNN.snnConverter.adapter import (
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.snn.snnConverter.adapter import (
         auto_detect_adapter, ViTExecutionAdapter, CausalDecoderAdapter,
         DefaultExecutionAdapter,
     )
@@ -172,8 +172,8 @@ def test_adapter_auto_detection():
 
 def test_vit_adapter_supports():
     """Verify ViTExecutionAdapter.supports() duck-typing."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.SNN.snnConverter.adapter import ViTExecutionAdapter
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.snn.snnConverter.adapter import ViTExecutionAdapter
 
     vit = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     assert ViTExecutionAdapter.supports(vit), "ViT should be supported"
@@ -187,9 +187,9 @@ def test_vit_adapter_supports():
 
 def test_wrapper_no_model_name():
     """Verify SNNWrapper works without explicit model_name."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.QANN.quantization.ptq import PTQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.qann.quantization.ptq import PTQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     PTQQuantizer(level=16, is_softmax=True).quantize_model(model)
@@ -204,7 +204,7 @@ def test_wrapper_no_model_name():
         is_softmax=True,
     )
 
-    from unieval.SNN.snnConverter.adapter import ViTExecutionAdapter
+    from unieval.snn.snnConverter.adapter import ViTExecutionAdapter
     assert isinstance(wrapper.adapter, ViTExecutionAdapter), \
         f"Should auto-detect ViT adapter, got {type(wrapper.adapter)}"
 
@@ -213,9 +213,9 @@ def test_wrapper_no_model_name():
 
 def test_shared_threshold_transfer():
     """Verify shared transfer_threshold works correctly."""
-    from unieval.SNN.snnConverter.threshold import transfer_threshold
-    from unieval.SNN.operators.neurons import IFNeuron
-    from unieval.QANN.operators.ptq import PTQQuan
+    from unieval.snn.snnConverter.threshold import transfer_threshold
+    from unieval.snn.operators.neurons import IFNeuron
+    from unieval.qann.operators.ptq import PTQQuan
 
     quan = PTQQuan(level=16, sym=True)
     quan.s.fill_(0.42)
@@ -233,9 +233,9 @@ def test_shared_threshold_transfer():
 
 def test_composite_operators_forward():
     """Verify SConv2d and SLinear forward pass."""
-    from unieval.SNN.operators.composites import SConv2d, SLinear
-    from unieval.SNN.operators.layers import LLConv2d, LLLinear
-    from unieval.SNN.operators.neurons import IFNeuron
+    from unieval.snn.operators.composites import SConv2d, SLinear
+    from unieval.snn.operators.layers import LLConv2d, LLLinear
+    from unieval.snn.operators.neurons import IFNeuron
 
     # SConv2d
     conv = nn.Conv2d(3, 16, 3, padding=1)
@@ -266,9 +266,9 @@ def test_composite_operators_forward():
 
 def test_composite_multistep_equivalence():
     """Verify forward_multistep equals sequential single-step for composites."""
-    from unieval.SNN.operators.composites import SConv2d, SLinear
-    from unieval.SNN.operators.layers import LLConv2d, LLLinear
-    from unieval.SNN.operators.neurons import IFNeuron
+    from unieval.snn.operators.composites import SConv2d, SLinear
+    from unieval.snn.operators.layers import LLConv2d, LLLinear
+    from unieval.snn.operators.neurons import IFNeuron
 
     # SLinear test
     linear = nn.Linear(32, 16, bias=True)
@@ -298,8 +298,8 @@ def test_composite_multistep_equivalence():
 
 def test_qann_forward_equivalence():
     """Verify Q* composites produce same output as Sequential equivalents."""
-    from unieval.QANN.operators.composites import QConv2d, QLinear, QNorm
-    from unieval.QANN.operators.ptq import PTQQuan
+    from unieval.qann.operators.composites import QConv2d, QLinear, QNorm
+    from unieval.qann.operators.ptq import PTQQuan
 
     # QConv2d
     conv = nn.Conv2d(3, 16, 3, padding=1)
@@ -334,10 +334,10 @@ def test_qann_forward_equivalence():
 
 def test_vit_e2e_pipeline():
     """Full ViT pipeline: create → quantize → convert → forward."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.QANN.quantization.ptq import PTQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.SNN.operators.composites import SConv2d, SLinear
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.qann.quantization.ptq import PTQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.operators.composites import SConv2d, SLinear
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     PTQQuantizer(level=16, is_softmax=True).quantize_model(model)
@@ -370,9 +370,9 @@ def test_vit_e2e_pipeline():
 
 def test_wrapper_multistep_equivalence():
     """forward_encoded == manual step_encoded loop."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.QANN.quantization.ptq import PTQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.qann.quantization.ptq import PTQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     PTQQuantizer(level=16, is_softmax=True).quantize_model(model)
@@ -412,12 +412,12 @@ def test_wrapper_multistep_equivalence():
 
 def test_energy_nonzero():
     """EnergyEvaluator should return non-zero energy values."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.ANN.models.base import ModelProfile
-    from unieval.QANN.quantization.ptq import PTQQuantizer
-    from unieval.SNN.snnConverter.wrapper import SNNWrapper
-    from unieval.Evaluation.energy.energy import EnergyEvaluator
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.ann.models.base import ModelProfile
+    from unieval.qann.quantization.ptq import PTQQuantizer
+    from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.evaluation.energy.energy import EnergyEvaluator
+    from unieval.evaluation.energy.ops_counter import OpsCounter
     from unieval.config import EnergyConfig
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
@@ -459,9 +459,9 @@ def test_energy_nonzero():
 
 def test_ops_counter_new_types():
     """OpsCounter should recognize SConv2d, SLinear, Q* composites."""
-    from unieval.Evaluation.energy.ops_counter import OpsCounter
-    from unieval.SNN.operators.composites import SConv2d, SLinear
-    from unieval.QANN.operators.composites import QConv2d, QLinear, QNorm
+    from unieval.evaluation.energy.ops_counter import OpsCounter
+    from unieval.snn.operators.composites import SConv2d, SLinear
+    from unieval.qann.operators.composites import QConv2d, QLinear, QNorm
 
     counter = OpsCounter()
     # All new types should be recognized
@@ -480,8 +480,8 @@ def test_ops_counter_new_types():
 
 def test_adapter_reset_context():
     """Verify adapter reset_context restores ViT embeddings."""
-    from unieval.ANN.models.vit import vit_small_patch16
-    from unieval.SNN.snnConverter.adapter import ViTExecutionAdapter
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.snn.snnConverter.adapter import ViTExecutionAdapter
 
     model = vit_small_patch16(img_size=224, num_classes=100, act_layer=nn.ReLU)
     adapter = ViTExecutionAdapter()
@@ -504,8 +504,8 @@ def test_adapter_reset_context():
 
 def test_spiking_attention_protocol():
     """Verify is_spiking_attention_like matches SAttention."""
-    from unieval.SNN.operators.attention import SAttention
-    from unieval.SNN.operators.neurons import IFNeuron
+    from unieval.snn.operators.attention import SAttention
+    from unieval.snn.operators.neurons import IFNeuron
     from unieval.protocols import is_spiking_attention_like
 
     sa = SAttention(dim=64, num_heads=4, level=16, is_softmax=True, neuron_layer=IFNeuron)

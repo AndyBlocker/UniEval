@@ -12,7 +12,7 @@ import torch.nn as nn
 from .base import SNNOperator
 from .neurons import STBIFNeuron, _sequential_multistep
 from .attention import spiking_softmax, multi, multi1
-from ...ANN.operators.rope import apply_rotary_pos_emb
+from ...ann.operators.rope import apply_rotary_pos_emb
 
 
 class SQwen3Attention(nn.Module, SNNOperator):

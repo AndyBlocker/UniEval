@@ -18,9 +18,9 @@ from ..operators.layers import LLLinear
 from ..operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU, Spiking_SwiGLUMlp
 from ..operators.qwen3_attention import SQwen3Attention
 from ...protocols import is_softmax_decoder_attn_like, is_rmsnorm_like, is_swiglu_mlp_like
-from ...QANN.operators.lsq import MyQuan
-from ...QANN.operators.ptq import PTQQuan
-from ...QANN.operators.composites import QNorm
+from ...qann.operators.lsq import MyQuan
+from ...qann.operators.ptq import PTQQuan
+from ...qann.operators.composites import QNorm
 
 
 # ---------------------------------------------------------------------------
