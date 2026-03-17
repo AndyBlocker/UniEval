@@ -114,14 +114,11 @@ def test_uniaffine_ptq_quantizers():
     assert hasattr(attn, "core"), "QUniAffineAttention should have core"
 
 
-# ===== Test 2: Protocols still match after PTQ =====
+# ===== Test 2: Correct types after PTQ =====
 
-def test_protocols_after_qwen3_ptq():
+def test_types_after_qwen3_ptq():
     from unieval.qann.quantization.base import BaseQuantizer
-    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
-    from unieval.protocols import (
-        is_softmax_decoder_attn_like, is_qwen3_block_like, is_qwen3_model_like,
-    )
+    from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES, QQwen3Attention
 
     model = _small_qwen3()
 
@@ -132,20 +129,13 @@ def test_protocols_after_qwen3_ptq():
 
     Q().quantize_model(model)
 
-    # QQwen3Attention should still match softmax decoder attn
-    assert is_softmax_decoder_attn_like(model.blocks[0].attn), \
-        "QQwen3Attention should match is_softmax_decoder_attn_like"
-    # Block should still match
-    assert is_qwen3_block_like(model.blocks[0]), \
-        "Block with QQwen3Attention should match is_qwen3_block_like"
+    assert isinstance(model.blocks[0].attn, QQwen3Attention), \
+        "Attention should be QQwen3Attention after PTQ"
 
 
-def test_protocols_after_uniaffine_ptq():
+def test_types_after_uniaffine_ptq():
     from unieval.qann.quantization.base import BaseQuantizer
-    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
-    from unieval.protocols import (
-        is_uniaffine_attn_like, is_uniaffine_block_like,
-    )
+    from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES, QUniAffineAttention
 
     model = _small_uniaffine()
 
@@ -156,10 +146,8 @@ def test_protocols_after_uniaffine_ptq():
 
     Q().quantize_model(model)
 
-    assert is_uniaffine_attn_like(model.blocks[0].attn), \
-        "QUniAffineAttention should match is_uniaffine_attn_like"
-    assert is_uniaffine_block_like(model.blocks[0]), \
-        "Block with QUniAffineAttention should match is_uniaffine_block_like"
+    assert isinstance(model.blocks[0].attn, QUniAffineAttention), \
+        "Attention should be QUniAffineAttention after PTQ"
 
 
 # ===== Test 3: ANN vs QANN forward (quantized model runs correctly) =====
@@ -446,8 +434,8 @@ if __name__ == "__main__":
     run_test("UniAffine PTQ 6 quantizers", test_uniaffine_ptq_quantizers)
 
     print("\n--- Protocol Matching After PTQ ---")
-    run_test("Qwen3 protocols after PTQ", test_protocols_after_qwen3_ptq)
-    run_test("UniAffine protocols after PTQ", test_protocols_after_uniaffine_ptq)
+    run_test("Qwen3 types after PTQ", test_types_after_qwen3_ptq)
+    run_test("UniAffine types after PTQ", test_types_after_uniaffine_ptq)
 
     print("\n--- ANN vs QANN Forward ---")
     run_test("Qwen3 ANN vs QANN", test_qwen3_ann_vs_qann)

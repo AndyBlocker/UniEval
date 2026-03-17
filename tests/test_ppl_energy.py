@@ -181,6 +181,8 @@ def test_qwen3_snn_ppl():
     from unieval.qann.quantization.base import BaseQuantizer
     from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
     from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.snnConverter.qwen3_rules import QWEN3_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
 
     model = _small_qwen3().eval()
 
@@ -203,8 +205,8 @@ def test_qwen3_snn_ppl():
         encoding_type="analog",
         level=32,
         neuron_type="ST-BIF",
-        model_name="qwen3",
         is_softmax=True,
+        conversion_rules=QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES,
     )
 
     dl2 = _decoder_dataloader()
@@ -222,6 +224,8 @@ def test_uniaffine_snn_ppl():
     from unieval.qann.quantization.base import BaseQuantizer
     from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
     from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.snnConverter.uniaffine_rules import UNIAFFINE_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
 
     model = _small_uniaffine().eval()
 
@@ -243,8 +247,8 @@ def test_uniaffine_snn_ppl():
         encoding_type="analog",
         level=32,
         neuron_type="ST-BIF",
-        model_name="uniaffine",
         is_softmax=False,
+        conversion_rules=UNIAFFINE_CONVERSION_RULES + DEFAULT_CONVERSION_RULES,
     )
 
     dl2 = _decoder_dataloader()
@@ -263,6 +267,8 @@ def test_qwen3_snn_energy():
     from unieval.qann.quantization.base import BaseQuantizer
     from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
     from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.snnConverter.qwen3_rules import QWEN3_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
     from unieval.evaluation.energy.ops_counter import OpsCounter
     from unieval.evaluation.energy.energy import EnergyEvaluator
     from unieval.config import EnergyConfig
@@ -288,8 +294,8 @@ def test_qwen3_snn_energy():
         encoding_type="analog",
         level=32,
         neuron_type="ST-BIF",
-        model_name="qwen3",
         is_softmax=True,
+        conversion_rules=QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES,
     )
 
     profile = DecoderModelProfile(
@@ -334,6 +340,8 @@ def test_uniaffine_snn_energy():
     from unieval.qann.quantization.base import BaseQuantizer
     from unieval.qann.quantization.uniaffine_rules import UNIAFFINE_PTQ_RULES
     from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.snnConverter.uniaffine_rules import UNIAFFINE_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
     from unieval.evaluation.energy.ops_counter import OpsCounter
     from unieval.evaluation.energy.energy import EnergyEvaluator
     from unieval.config import EnergyConfig
@@ -359,8 +367,8 @@ def test_uniaffine_snn_energy():
         encoding_type="analog",
         level=32,
         neuron_type="ST-BIF",
-        model_name="uniaffine",
         is_softmax=False,
+        conversion_rules=UNIAFFINE_CONVERSION_RULES + DEFAULT_CONVERSION_RULES,
     )
 
     profile = DecoderModelProfile(
@@ -418,7 +426,6 @@ def test_vit_snn_energy():
         encoding_type="analog",
         level=16,
         neuron_type="ST-BIF",
-        model_name="vit_small",
         is_softmax=True,
     )
 
@@ -458,6 +465,8 @@ def test_decoder_ops_hook_coverage():
     from unieval.qann.quantization.base import BaseQuantizer
     from unieval.qann.quantization.qwen3_rules import QWEN3_PTQ_RULES
     from unieval.snn.snnConverter.wrapper import SNNWrapper
+    from unieval.snn.snnConverter.qwen3_rules import QWEN3_CONVERSION_RULES
+    from unieval.snn.snnConverter.rules import DEFAULT_CONVERSION_RULES
     from unieval.evaluation.energy.ops_counter import OpsCounter
 
     model = _small_qwen3().eval()
@@ -480,8 +489,8 @@ def test_decoder_ops_hook_coverage():
         encoding_type="analog",
         level=32,
         neuron_type="ST-BIF",
-        model_name="qwen3",
         is_softmax=True,
+        conversion_rules=QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES,
     )
 
     counter = OpsCounter(time_step=32)
