@@ -290,6 +290,8 @@ class SNNWrapper(nn.Module):
         _is_decoder = is_decoder_model_like(self.model)
 
         # Fast path: use forward_encoded for fixed-T without early stop or verbose
+        # TODO: rate encoding 下此路径用 T=self.T 编码，而 step-by-step 路径
+        # 用 self.level 个有效步 + 零填充到 self.T，语义不一致。
         if not verbose and _is_decoder:
             T = self.T
             x_seq = self.encode_sequence(x, T=T)

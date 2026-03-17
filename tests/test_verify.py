@@ -1276,7 +1276,7 @@ if __name__ == "__main__":
     run_test("conversion imports", test_conversion_imports)
     run_test("evaluation imports", test_evaluation_imports)
     run_test("model imports", test_model_imports)
-    run_test("engine imports", test_engine_imports)
+    run_test("api imports", test_api_imports)
 
     print("\n--- Registry System ---")
     run_test("registry basic", test_registry_basic)
