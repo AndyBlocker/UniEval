@@ -290,11 +290,20 @@ class SNNWrapper(nn.Module):
         _is_decoder = is_decoder_model_like(self.model)
 
         # Fast path: use forward_encoded for fixed-T without early stop or verbose
-        # TODO: rate encoding 下此路径用 T=self.T 编码，而 step-by-step 路径
-        # 用 self.level 个有效步 + 零填充到 self.T，语义不一致。
         if not verbose and _is_decoder:
             T = self.T
-            x_seq = self.encode_sequence(x, T=T)
+            if self.Encoding_type == "rate":
+                # 与 step-by-step 路径一致：前 min(level, T) 步有信号，后续零填充
+                active_T = min(self.level, T)
+                x_seq = self.encode_sequence(x, T=active_T)
+                if T > active_T:
+                    pad = torch.zeros(
+                        T - active_T, *x_seq.shape[1:],
+                        device=x_seq.device, dtype=x_seq.dtype,
+                    )
+                    x_seq = torch.cat([x_seq, pad], dim=0)
+            else:
+                x_seq = self.encode_sequence(x, T=T)
             output_seq = self.forward_encoded(x_seq)  # [T, B, ...]
             accu = output_seq.sum(dim=0)
             self.max_T = max(T, self.max_T)
