@@ -293,11 +293,12 @@ class SNNWrapper(nn.Module):
         if not verbose and _is_decoder:
             T = self.T
             if self.Encoding_type == "rate":
-                # 与 step-by-step 路径一致：前 self.level 步有信号，后续零填充
-                x_seq = self.encode_sequence(x, T=self.level)
-                if T > self.level:
+                # 与 step-by-step 路径一致：前 min(level, T) 步有信号，后续零填充
+                active_T = min(self.level, T)
+                x_seq = self.encode_sequence(x, T=active_T)
+                if T > active_T:
                     pad = torch.zeros(
-                        T - self.level, *x_seq.shape[1:],
+                        T - active_T, *x_seq.shape[1:],
                         device=x_seq.device, dtype=x_seq.dtype,
                     )
                     x_seq = torch.cat([x_seq, pad], dim=0)
