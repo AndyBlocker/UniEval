@@ -465,7 +465,6 @@ def test_snn_wrapper_analog():
         encoding_type="analog",
         level=16,
         neuron_type="ST-BIF",
-        model_name="vit_small",
         is_softmax=True,
     )
 
@@ -784,7 +783,7 @@ def test_encode_sequence_analog():
 
     wrapper = SNNWrapper(
         ann_model=model, time_step=4, encoding_type="analog",
-        level=16, neuron_type="ST-BIF", model_name="vit_small",
+        level=16, neuron_type="ST-BIF",
     )
 
     x = torch.randn(2, 3, 224, 224)
@@ -812,7 +811,7 @@ def test_encode_sequence_rate():
 
     wrapper = SNNWrapper(
         ann_model=model, time_step=4, encoding_type="rate",
-        level=16, neuron_type="ST-BIF", model_name="vit_small",
+        level=16, neuron_type="ST-BIF",
     )
 
     x = torch.randn(2, 3, 224, 224)
@@ -841,7 +840,7 @@ def test_step_encoded_api():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     wrapper = SNNWrapper(
         ann_model=model, time_step=4, encoding_type="analog",
-        level=16, neuron_type="ST-BIF", model_name="vit_small",
+        level=16, neuron_type="ST-BIF",
     ).to(device).eval()
 
     x = torch.randn(1, 3, 224, 224).to(device)
@@ -886,7 +885,7 @@ def test_step_encoded_vs_run_auto():
     model1 = deepcopy(model)
     wrapper1 = SNNWrapper(
         ann_model=model1, time_step=8, encoding_type="analog",
-        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+        level=16, neuron_type="ST-BIF",
     ).to(device).eval()
 
     x = torch.randn(1, 3, 32, 32).to(device)
@@ -897,7 +896,7 @@ def test_step_encoded_vs_run_auto():
     model2 = deepcopy(model)
     wrapper2 = SNNWrapper(
         ann_model=model2, time_step=8, encoding_type="analog",
-        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+        level=16, neuron_type="ST-BIF",
     ).to(device).eval()
 
     wrapper2.reset()
@@ -1049,7 +1048,7 @@ def test_wrapper_no_debug_print(capsys=None):
 
     wrapper = SNNWrapper(
         ann_model=model, time_step=4, encoding_type="analog",
-        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+        level=16, neuron_type="ST-BIF",
     ).eval()
 
     # Capture stdout
@@ -1163,7 +1162,7 @@ def test_adapter_forward_multistep_sequential():
 
     wrapper = SNNWrapper(
         ann_model=model, time_step=4, encoding_type="analog",
-        level=16, neuron_type="ST-BIF", model_name="vit_tiny",
+        level=16, neuron_type="ST-BIF",
     ).eval()
 
     # After conversion, patch_embed.proj should be SConv2d (composite operator)

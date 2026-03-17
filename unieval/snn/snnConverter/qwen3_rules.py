@@ -17,8 +17,8 @@ from ..operators.neurons import STBIFNeuron, IFNeuron
 from ..operators.layers import LLLinear
 from ..operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU, Spiking_SwiGLUMlp
 from ..operators.qwen3_attention import SQwen3Attention
-from ...qann.quantization.qwen3_rules import QQwen3Attention
 from ...ann.models.qwen3 import RMSNorm, SwiGLUMlp
+from ...qann.quantization.qwen3_rules import QQwen3Attention
 from ...qann.operators.lsq import MyQuan
 from ...qann.operators.ptq import PTQQuan
 from ...qann.operators.composites import QNorm
@@ -29,7 +29,7 @@ from ...qann.operators.composites import QNorm
 # ---------------------------------------------------------------------------
 
 def _match_qwen3_attn(name, child, parent):
-    """Match quantized Qwen3 attention (QQwen3Attention)."""
+    """Match quantized Qwen3 attention."""
     return isinstance(child, QQwen3Attention)
 
 

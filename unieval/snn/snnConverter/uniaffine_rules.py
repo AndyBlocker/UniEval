@@ -16,8 +16,8 @@ from ..operators.neurons import STBIFNeuron, IFNeuron
 from ..operators.layers import LLLinear
 from ..operators.uniaffine_layers import Spiking_UnifiedClipNorm, Spiking_ReGLUMlp
 from ..operators.uniaffine_attention import SpikeUniAffineAttention
-from ...qann.quantization.uniaffine_rules import QUniAffineAttention
 from ...ann.models.uniaffine import UnifiedClipNorm, ReGLUMlp
+from ...qann.quantization.uniaffine_rules import QUniAffineAttention
 from ...qann.operators.lsq import MyQuan
 from ...qann.operators.ptq import PTQQuan
 from ...qann.operators.composites import QNorm
@@ -28,7 +28,7 @@ from ...qann.operators.composites import QNorm
 # ---------------------------------------------------------------------------
 
 def _match_uniaffine_attn(name, child, parent):
-    """Match quantized UniAffine attention (QUniAffineAttention)."""
+    """Match quantized UniAffine attention."""
     return isinstance(child, QUniAffineAttention)
 
 

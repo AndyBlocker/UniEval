@@ -6,10 +6,8 @@ from copy import deepcopy
 
 from ..operators.base import SNNOperator
 from ..operators.layers import LLLinear
-from ...ann.models.uniaffine import UniAffineModel
-from ...ann.models.qwen3 import Qwen3Model
 from .converter import SNNConverter
-from .adapter import ADAPTER_REGISTRY, auto_detect_adapter
+from .adapter import ADAPTER_REGISTRY, auto_detect_adapter, CausalDecoderAdapter
 from .threshold import transfer_threshold
 
 
@@ -102,12 +100,11 @@ class SNNWrapper(nn.Module):
         encoding_type: "rate" or "analog".
         level: Quantization level.
         neuron_type: Neuron type string.
-        model_name: DEPRECATED. Model name hint (adapter auto-detection
-            now uses duck-typing via adapter.supports()). Kept for backward
-            compatibility; ignored when adapter_name is specified or
-            auto-detection succeeds.
         is_softmax: Whether attention uses softmax.
-        converter: Optional SNNConverter instance.
+        conversion_rules: List of ConversionRule for ANN→SNN conversion.
+            None uses DEFAULT_CONVERSION_RULES. For decoder models, pass
+            model-specific rules (e.g. QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES).
+        converter: Optional SNNConverter instance (takes precedence over conversion_rules).
         adapter_name: Execution adapter name (default: auto-detect via duck-typing).
     """
 
@@ -118,8 +115,8 @@ class SNNWrapper(nn.Module):
         encoding_type="rate",
         level=16,
         neuron_type="ST-BIF",
-        model_name="vit",
         is_softmax=True,
+        conversion_rules=None,
         converter=None,
         adapter_name=None,
     ):
@@ -129,7 +126,6 @@ class SNNWrapper(nn.Module):
         self.level = level
         self.neuron_type = neuron_type
         self.model = ann_model
-        self.model_name = model_name  # kept for backward compat
         self.is_softmax = is_softmax
         self.max_T = 0
         self._current_t = 0
@@ -142,17 +138,11 @@ class SNNWrapper(nn.Module):
             # Auto-detect via duck-typing
             self.adapter = auto_detect_adapter(self.model)
 
-        # Auto-detect converter based on model structure
+        # Build converter: explicit converter > explicit rules > default
         if converter is not None:
             conv = converter
-        elif isinstance(self.model, UniAffineModel):
-            from .uniaffine_rules import UNIAFFINE_CONVERSION_RULES
-            from .rules import DEFAULT_CONVERSION_RULES
-            conv = SNNConverter(rules=UNIAFFINE_CONVERSION_RULES + DEFAULT_CONVERSION_RULES)
-        elif isinstance(self.model, Qwen3Model):
-            from .qwen3_rules import QWEN3_CONVERSION_RULES
-            from .rules import DEFAULT_CONVERSION_RULES
-            conv = SNNConverter(rules=QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES)
+        elif conversion_rules is not None:
+            conv = SNNConverter(rules=conversion_rules)
         else:
             conv = SNNConverter()
         conv.convert(
@@ -285,8 +275,8 @@ class SNNWrapper(nn.Module):
         # Pre-process input via adapter (e.g. token IDs -> embeddings for decoder)
         x = self.adapter.prepare_input(self.model, x)
 
-        # Detect if this is a decoder adapter (has non-trivial prepare_input)
-        _is_decoder = isinstance(self.model, (UniAffineModel, Qwen3Model))
+        # Detect if this is a decoder adapter
+        _is_decoder = isinstance(self.adapter, CausalDecoderAdapter)
 
         # Fast path: use forward_encoded for fixed-T without early stop or verbose
         if not verbose and _is_decoder:

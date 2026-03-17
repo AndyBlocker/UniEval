@@ -17,8 +17,6 @@ import torch
 import torch.nn as nn
 
 from ...registry import Registry
-from ...ann.models.uniaffine import UniAffineModel
-from ...ann.models.qwen3 import Qwen3Model
 
 ADAPTER_REGISTRY = Registry("model_execution_adapters")
 
@@ -332,7 +330,8 @@ class CausalDecoderAdapter(ModelExecutionAdapter):
     @classmethod
     def supports(cls, model):
         """Decoder-like: has embedding, blocks, final_norm."""
-        return isinstance(model, (UniAffineModel, Qwen3Model))
+        return (hasattr(model, "embedding") and hasattr(model, "blocks")
+                and hasattr(model, "final_norm"))
 
     def capture_context(self, model):
         """Save embedding layer reference and causal mask before conversion."""

@@ -26,13 +26,12 @@ from ...snn.operators.composites import SConv2d, SLinear
 from ...snn.operators.attention import SAttention
 from ...snn.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU
 from ...snn.operators.uniaffine_layers import Spiking_UnifiedClipNorm
-from ...snn.operators.uniaffine_attention import Spiking_UniAffineAct
+from ...snn.operators.uniaffine_attention import Spiking_UniAffineAct, SpikeUniAffineAttention
+from ...snn.operators.qwen3_attention import SQwen3Attention
 from ...qann.operators.lsq import MyQuan
 from ...snn.snnConverter.wrapper import SNNWrapper
 from ...config import EnergyConfig
 from ...ann.models.base import ModelProfile, DecoderModelProfile
-from ...snn.operators.uniaffine_attention import SpikeUniAffineAttention
-from ...snn.operators.qwen3_attention import SQwen3Attention
 from ...registry import EVALUATOR_REGISTRY
 
 
@@ -257,7 +256,7 @@ class EnergyEvaluator(BaseEvaluator):
                     * (patch_size ** 2)
                     * (embed_per_head ** 2))
 
-        # Find all spiking attention modules dynamically via duck-typing
+        # Find all spiking attention modules
         model = wrapper.model
         sa_modules = []
         for _, module in model.named_modules():
@@ -312,7 +311,7 @@ class EnergyEvaluator(BaseEvaluator):
         model = wrapper.model
         sa_modules = []
         for _, module in model.named_modules():
-            if isinstance(module, (SpikeUniAffineAttention, SQwen3Attention)):
+            if isinstance(module, (SQwen3Attention, SpikeUniAffineAttention)):
                 sa_modules.append(module)
 
         total_ssa_ac = 0.0

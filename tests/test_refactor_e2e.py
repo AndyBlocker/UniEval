@@ -47,7 +47,7 @@ def test_new_imports():
     from unieval.snn.snnConverter.adapter import (
         auto_detect_adapter, CausalDecoderAdapter, UniAffineExecutionAdapter,
     )
-    from unieval.protocols import is_spiking_attention_like
+    from unieval.snn.operators.attention import SAttention
     assert CausalDecoderAdapter is UniAffineExecutionAdapter, "backward compat alias"
 
 
@@ -500,18 +500,17 @@ def test_adapter_reset_context():
         "pos_embed should be restored after reset_context"
 
 
-# ===== Test 18: protocols is_spiking_attention_like =====
+# ===== Test 18: spiking attention isinstance =====
 
-def test_spiking_attention_protocol():
-    """Verify is_spiking_attention_like matches SAttention."""
+def test_spiking_attention_isinstance():
+    """Verify SAttention is correctly typed."""
     from unieval.snn.operators.attention import SAttention
     from unieval.snn.operators.neurons import IFNeuron
-    from unieval.protocols import is_spiking_attention_like
 
     sa = SAttention(dim=64, num_heads=4, level=16, is_softmax=True, neuron_layer=IFNeuron)
-    assert is_spiking_attention_like(sa), "SAttention should match is_spiking_attention_like"
-    assert not is_spiking_attention_like(nn.Linear(10, 10)), \
-        "Linear should not match is_spiking_attention_like"
+    assert isinstance(sa, SAttention), "SAttention should be SAttention"
+    assert not isinstance(nn.Linear(10, 10), SAttention), \
+        "Linear should not be SAttention"
 
 
 # ===== Main =====
@@ -539,7 +538,7 @@ if __name__ == "__main__":
         ("Energy evaluator non-zero", test_energy_nonzero),
         ("OpsCounter new types", test_ops_counter_new_types),
         ("Adapter reset_context", test_adapter_reset_context),
-        ("Spiking attention protocol", test_spiking_attention_protocol),
+        ("Spiking attention isinstance", test_spiking_attention_isinstance),
     ]
 
     for name, fn in tests:
