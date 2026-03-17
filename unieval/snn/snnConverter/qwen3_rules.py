@@ -17,7 +17,8 @@ from ..operators.neurons import STBIFNeuron, IFNeuron
 from ..operators.layers import LLLinear
 from ..operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU, Spiking_SwiGLUMlp
 from ..operators.qwen3_attention import SQwen3Attention
-from ...protocols import is_softmax_decoder_attn_like, is_rmsnorm_like, is_swiglu_mlp_like
+from ...qann.quantization.qwen3_rules import QQwen3Attention
+from ...ann.models.qwen3 import RMSNorm, SwiGLUMlp
 from ...qann.operators.lsq import MyQuan
 from ...qann.operators.ptq import PTQQuan
 from ...qann.operators.composites import QNorm
@@ -28,21 +29,21 @@ from ...qann.operators.composites import QNorm
 # ---------------------------------------------------------------------------
 
 def _match_qwen3_attn(name, child, parent):
-    """Match quantized Qwen3 attention (QQwen3Attention with quan_q)."""
-    return is_softmax_decoder_attn_like(child) and hasattr(child, "quan_q")
+    """Match quantized Qwen3 attention (QQwen3Attention)."""
+    return isinstance(child, QQwen3Attention)
 
 
 def _match_rmsnorm(name, child, parent):
-    return is_rmsnorm_like(child)
+    return isinstance(child, RMSNorm)
 
 
 def _match_qnorm_rmsnorm(name, child, parent):
     """Match QNorm wrapping a RMSNorm."""
-    return isinstance(child, QNorm) and is_rmsnorm_like(child.norm)
+    return isinstance(child, QNorm) and isinstance(child.norm, RMSNorm)
 
 
 def _match_swiglu_mlp(name, child, parent):
-    return is_swiglu_mlp_like(child)
+    return isinstance(child, SwiGLUMlp)
 
 
 def _match_silu(name, child, parent):

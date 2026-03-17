@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from .base import QuantPlacementRule
 from ..operators.composites import QLinear as QCompLinear, QNorm
 from ..operators.ptq import PTQQuan
-from ...protocols import is_uniaffine_block_like, is_uclip_like
+from ...ann.models.uniaffine import UniAffineBlock, UnifiedClipNorm
 from ...ann.operators.rope import apply_rotary_pos_emb
 
 
@@ -107,7 +107,7 @@ class QUniAffineAttention(nn.Module):
 
 
 def _match_uniaffine_block(name, child, parent):
-    return is_uniaffine_block_like(child)
+    return isinstance(child, UniAffineBlock)
 
 
 def _apply_uniaffine_block(name, child, parent, level, **kw):
@@ -141,7 +141,7 @@ def _apply_uniaffine_block(name, child, parent, level, **kw):
 
 def _match_uclip_standalone(name, child, parent):
     """Match standalone UnifiedClipNorm (e.g. final_norm)."""
-    return is_uclip_like(child)
+    return isinstance(child, UnifiedClipNorm)
 
 
 def _apply_uclip_standalone(name, child, parent, level, **kw):

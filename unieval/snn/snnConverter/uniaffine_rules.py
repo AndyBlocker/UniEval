@@ -16,7 +16,8 @@ from ..operators.neurons import STBIFNeuron, IFNeuron
 from ..operators.layers import LLLinear
 from ..operators.uniaffine_layers import Spiking_UnifiedClipNorm, Spiking_ReGLUMlp
 from ..operators.uniaffine_attention import SpikeUniAffineAttention
-from ...protocols import is_uniaffine_attn_like, is_uclip_like, is_reglu_mlp_like
+from ...qann.quantization.uniaffine_rules import QUniAffineAttention
+from ...ann.models.uniaffine import UnifiedClipNorm, ReGLUMlp
 from ...qann.operators.lsq import MyQuan
 from ...qann.operators.ptq import PTQQuan
 from ...qann.operators.composites import QNorm
@@ -27,21 +28,21 @@ from ...qann.operators.composites import QNorm
 # ---------------------------------------------------------------------------
 
 def _match_uniaffine_attn(name, child, parent):
-    """Match quantized UniAffine attention (QUniAffineAttention with quan_q)."""
-    return is_uniaffine_attn_like(child) and hasattr(child, "quan_q")
+    """Match quantized UniAffine attention (QUniAffineAttention)."""
+    return isinstance(child, QUniAffineAttention)
 
 
 def _match_uclip(name, child, parent):
-    return is_uclip_like(child)
+    return isinstance(child, UnifiedClipNorm)
 
 
 def _match_qnorm_uclip(name, child, parent):
     """Match QNorm wrapping a UnifiedClipNorm."""
-    return isinstance(child, QNorm) and is_uclip_like(child.norm)
+    return isinstance(child, QNorm) and isinstance(child.norm, UnifiedClipNorm)
 
 
 def _match_reglu_mlp(name, child, parent):
-    return is_reglu_mlp_like(child)
+    return isinstance(child, ReGLUMlp)
 
 
 # ---------------------------------------------------------------------------
