@@ -4,11 +4,10 @@ from .registry import (
     Registry,
     QUANTIZER_REGISTRY,
     NEURON_REGISTRY,
-    CONVERSION_RULE_REGISTRY,
     EVALUATOR_REGISTRY,
-    OPS_HOOK_REGISTRY,
     MODEL_PROFILE_REGISTRY,
 )
+from .SNN.snnConverter.adapter import ADAPTER_REGISTRY
 from .config import (
     UniEvalConfig,
     QuantConfig,

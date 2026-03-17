@@ -54,7 +54,5 @@ class Registry:
 # Global registries
 QUANTIZER_REGISTRY = Registry("quantizers")
 NEURON_REGISTRY = Registry("neurons")
-CONVERSION_RULE_REGISTRY = Registry("conversion_rules")
 EVALUATOR_REGISTRY = Registry("evaluators")
-OPS_HOOK_REGISTRY = Registry("ops_hooks")
 MODEL_PROFILE_REGISTRY = Registry("model_profiles")
