@@ -1,10 +1,20 @@
 """Base quantizer ABC and QuantPlacementRule system."""
 
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch.nn as nn
+
+# Leaf module types that are expected to have no quantization rule.
+_QUANT_SKIP_WARN_TYPES = (
+    nn.Linear, nn.Conv2d, nn.ReLU, nn.GELU, nn.SiLU, nn.LeakyReLU,
+    nn.Dropout, nn.Identity, nn.Embedding,
+    nn.BatchNorm1d, nn.BatchNorm2d, nn.GroupNorm,
+    nn.MaxPool2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d,
+    nn.Flatten, nn.Softmax, nn.Tanh, nn.Sigmoid,
+)
 
 
 @dataclass
@@ -49,4 +59,11 @@ class BaseQuantizer(ABC):
                     matched = True
                     break
             if not matched:
+                is_leaf = len(list(child.children())) == 0
+                if is_leaf and not isinstance(child, _QUANT_SKIP_WARN_TYPES):
+                    warnings.warn(
+                        f"UniEval: 叶模块 '{name}' ({type(child).__name__}) "
+                        f"未被任何量化规则匹配，将保持原样。",
+                        stacklevel=2,
+                    )
                 self._apply_rules(child, rules, **kwargs)
