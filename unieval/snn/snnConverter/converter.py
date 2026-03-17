@@ -1,10 +1,19 @@
 """SNNConverter: rule-driven recursive ANN-to-SNN conversion engine."""
 
+import warnings
 from typing import List, Optional
 
 import torch.nn as nn
 
 from .rules import ConversionRule, DEFAULT_CONVERSION_RULES
+
+# Leaf module types that are expected to have no conversion rule.
+_CONVERT_SKIP_WARN_TYPES = (
+    nn.Identity, nn.Dropout, nn.Embedding,
+    nn.BatchNorm1d, nn.BatchNorm2d, nn.GroupNorm,
+    nn.MaxPool2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d,
+    nn.Flatten, nn.Softmax, nn.Tanh, nn.Sigmoid,
+)
 
 
 class SNNConverter:
@@ -35,6 +44,7 @@ class SNNConverter:
             The converted model (same object, modified in-place).
         """
         self._convert_recursive(model, **kwargs)
+        self._warn_surviving_quantizers(model)
         return model
 
     def _convert_recursive(self, model: nn.Module, **kwargs):
@@ -47,4 +57,25 @@ class SNNConverter:
                     matched = True
                     break
             if not matched:
+                is_leaf = len(list(child.children())) == 0
+                if is_leaf and not isinstance(child, _CONVERT_SKIP_WARN_TYPES):
+                    warnings.warn(
+                        f"UniEval: 叶模块 '{name}' ({type(child).__name__}) "
+                        f"未被任何转换规则匹配，将保持原样。",
+                        stacklevel=2,
+                    )
                 self._convert_recursive(child, **kwargs)
+
+    def _warn_surviving_quantizers(self, model: nn.Module):
+        """Warn if any quantization modules survived conversion."""
+        from ...qann.operators.lsq import MyQuan
+        from ...qann.operators.ptq import PTQQuan
+        for name, module in model.named_modules():
+            if isinstance(module, (MyQuan, PTQQuan)):
+                warnings.warn(
+                    f"量化模块 {type(module).__name__} 在转换后仍残留于 "
+                    f"'{name}'，可能没有转换规则匹配到它，"
+                    f"SNN 模型可能产生错误结果。",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
