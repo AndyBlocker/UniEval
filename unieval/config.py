@@ -43,6 +43,7 @@ class UniEvalConfig:
     """Top-level configuration for UniEval pipeline."""
     model_name: str = "vit_small"
     num_classes: int = 1000
+    img_size: int = 224
     global_pool: bool = True
     quant: QuantConfig = field(default_factory=QuantConfig)
     conversion: ConversionConfig = field(default_factory=ConversionConfig)
