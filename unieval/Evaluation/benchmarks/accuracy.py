@@ -63,7 +63,9 @@ class AccuracyEvaluator(BaseEvaluator):
                 if self.num_batches is not None and i >= self.num_batches:
                     break
 
-                batch = batch.float().to(device)
+                batch = batch.to(device)
+                if not batch.is_floating_point() and batch.dtype not in (torch.long, torch.int):
+                    batch = batch.float()
                 target = target.to(device)
 
                 output = model(batch)

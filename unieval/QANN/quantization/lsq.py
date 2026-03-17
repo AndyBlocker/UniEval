@@ -13,8 +13,12 @@ from ...registry import QUANTIZER_REGISTRY
 # ---------------------------------------------------------------------------
 
 def _match_transformer_block(name, child, parent):
-    """Duck-typed match: any module with .attn and .mlp submodules."""
-    return hasattr(child, "attn") and hasattr(child, "mlp")
+    """Duck-typed match: ViT-style block with .attn.qkv and .mlp submodules.
+
+    Excludes decoder blocks (qkv_proj/o_proj) which have their own rule packs.
+    """
+    return (hasattr(child, "attn") and hasattr(child, "mlp")
+            and hasattr(child.attn, "qkv"))
 
 
 def _apply_transformer_block(name, child, parent, level, is_softmax=True, **kw):
