@@ -52,9 +52,10 @@ class Spiking_UniAffineAct(nn.Module, SNNOperator):
         self.X = 0.0
         self.Y_pre = None
 
-    def forward(self, input):
+    def forward(self, input, mask=None):
         self.X = self.X + input
-        Y = self.core(self.X)
+        scores = self.X + mask if mask is not None else self.X
+        Y = self.core(scores)
         if self.Y_pre is not None:
             Y_pre = self.Y_pre.detach().clone()
         else:
@@ -62,10 +63,11 @@ class Spiking_UniAffineAct(nn.Module, SNNOperator):
         self.Y_pre = Y
         return Y - Y_pre
 
-    def forward_multistep(self, x_seq):
+    def forward_multistep(self, x_seq, mask=None):
         """Vectorized: cumsum + uniaffine_act + diff."""
         X_cum = x_seq.cumsum(dim=0) + self.X
-        Y = self.core(X_cum)
+        scores = X_cum + mask if mask is not None else X_cum
+        Y = self.core(scores)
         if self.Y_pre is not None:
             Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
         else:
@@ -199,8 +201,8 @@ class SpikeUniAffineAttention(nn.Module, SNNOperator):
             k_acc_rot.float(),
         )
 
-        # Spiking UniAffine activation
-        attn = self.s_uniaffine(attn_diff)
+        # Spiking UniAffine activation (causal mask applied inside to accumulated scores)
+        attn = self.s_uniaffine(attn_diff, mask=causal_mask)
 
         attn = self.attn_IF(attn)
         attn_acc = self.attn_IF.acc_q * self.attn_IF.q_threshold
