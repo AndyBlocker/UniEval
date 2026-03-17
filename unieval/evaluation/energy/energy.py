@@ -30,11 +30,9 @@ from ...snn.operators.uniaffine_attention import Spiking_UniAffineAct
 from ...qann.operators.lsq import MyQuan
 from ...snn.snnConverter.wrapper import SNNWrapper
 from ...config import EnergyConfig
-from ...ann.models.base import ModelProfile
-from ...protocols import (
-    is_decoder_profile, is_spiking_decoder_attn_like,
-    is_spiking_attention_like,
-)
+from ...ann.models.base import ModelProfile, DecoderModelProfile
+from ...snn.operators.uniaffine_attention import SpikeUniAffineAttention
+from ...snn.operators.qwen3_attention import SQwen3Attention
 from ...registry import EVALUATOR_REGISTRY
 
 
@@ -199,7 +197,7 @@ class EnergyEvaluator(BaseEvaluator):
         inner = model.module if hasattr(model, "module") else model
         times_counter = max(model.__times_counter__, 1) if hasattr(model, "__times_counter__") else 1
         if isinstance(inner, SNNWrapper) and self.profile is not None:
-            if is_decoder_profile(self.profile):
+            if isinstance(self.profile, DecoderModelProfile):
                 ssa_ac, ssa_qkv_fr = self._compute_decoder_ssa_energy(
                     inner, self.profile, times_counter
                 )
@@ -263,7 +261,7 @@ class EnergyEvaluator(BaseEvaluator):
         model = wrapper.model
         sa_modules = []
         for _, module in model.named_modules():
-            if is_spiking_attention_like(module):
+            if isinstance(module, (SAttention, SpikeUniAffineAttention, SQwen3Attention)):
                 sa_modules.append(module)
 
         total_ssa_ac = 0.0
@@ -314,7 +312,7 @@ class EnergyEvaluator(BaseEvaluator):
         model = wrapper.model
         sa_modules = []
         for _, module in model.named_modules():
-            if is_spiking_decoder_attn_like(module):
+            if isinstance(module, (SpikeUniAffineAttention, SQwen3Attention)):
                 sa_modules.append(module)
 
         total_ssa_ac = 0.0

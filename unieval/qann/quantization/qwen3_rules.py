@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from .base import QuantPlacementRule
 from ..operators.composites import QLinear as QCompLinear, QNorm
 from ..operators.ptq import PTQQuan
-from ...protocols import is_qwen3_block_like, is_rmsnorm_like
+from ...ann.models.qwen3 import Qwen3Block, RMSNorm
 from ...ann.operators.rope import apply_rotary_pos_emb
 
 
@@ -102,7 +102,7 @@ class QQwen3Attention(nn.Module):
 
 
 def _match_qwen3_block(name, child, parent):
-    return is_qwen3_block_like(child)
+    return isinstance(child, Qwen3Block)
 
 
 def _apply_qwen3_block(name, child, parent, level, **kw):
@@ -135,7 +135,7 @@ def _apply_qwen3_block(name, child, parent, level, **kw):
 
 def _match_rmsnorm_standalone(name, child, parent):
     """Match standalone RMSNorm (e.g. final_norm)."""
-    return is_rmsnorm_like(child)
+    return isinstance(child, RMSNorm)
 
 
 def _apply_rmsnorm_standalone(name, child, parent, level, **kw):

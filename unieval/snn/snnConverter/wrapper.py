@@ -6,9 +6,8 @@ from copy import deepcopy
 
 from ..operators.base import SNNOperator
 from ..operators.layers import LLLinear
-from ...protocols import (
-    is_decoder_model_like, is_uniaffine_model_like, is_qwen3_model_like,
-)
+from ...ann.models.uniaffine import UniAffineModel
+from ...ann.models.qwen3 import Qwen3Model
 from .converter import SNNConverter
 from .adapter import ADAPTER_REGISTRY, auto_detect_adapter
 from .threshold import transfer_threshold
@@ -146,11 +145,11 @@ class SNNWrapper(nn.Module):
         # Auto-detect converter based on model structure
         if converter is not None:
             conv = converter
-        elif is_uniaffine_model_like(self.model):
+        elif isinstance(self.model, UniAffineModel):
             from .uniaffine_rules import UNIAFFINE_CONVERSION_RULES
             from .rules import DEFAULT_CONVERSION_RULES
             conv = SNNConverter(rules=UNIAFFINE_CONVERSION_RULES + DEFAULT_CONVERSION_RULES)
-        elif is_qwen3_model_like(self.model):
+        elif isinstance(self.model, Qwen3Model):
             from .qwen3_rules import QWEN3_CONVERSION_RULES
             from .rules import DEFAULT_CONVERSION_RULES
             conv = SNNConverter(rules=QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES)
@@ -287,7 +286,7 @@ class SNNWrapper(nn.Module):
         x = self.adapter.prepare_input(self.model, x)
 
         # Detect if this is a decoder adapter (has non-trivial prepare_input)
-        _is_decoder = is_decoder_model_like(self.model)
+        _is_decoder = isinstance(self.model, (UniAffineModel, Qwen3Model))
 
         # Fast path: use forward_encoded for fixed-T without early stop or verbose
         if not verbose and _is_decoder:
