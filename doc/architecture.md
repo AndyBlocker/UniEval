@@ -14,11 +14,9 @@ ANN 模型 → 量化 → QANN 模型 → [PTQ 校准] → 转换 → SNN Wrappe
 
 ```
 ┌─────────────────────────────┐
-│  engine/  (应用层 Facade)    │  依赖所有子包
+│  evaluation/  (评估层)       │  观察 SNN/QANN，不参与变换
 ├─────────────────────────────┤
-│  Evaluation/  (评估层)       │  观察 SNN/QANN，不参与变换
-├─────────────────────────────┤
-│  ANN/ → QANN/ → SNN/        │  三种模型表示，单向依赖
+│  ann/ → qann/ → snn/        │  三种模型表示，单向依赖
 ├─────────────────────────────┤
 │  registry / config / protocols│  跨层公共基础
 └─────────────────────────────┘
@@ -26,9 +24,21 @@ ANN 模型 → 量化 → QANN 模型 → [PTQ 校准] → 转换 → SNN Wrappe
 
 ### 依赖规则
 
-**允许**：SNN → QANN、SNN → ANN/operators、QANN → ANN/operators、Evaluation → 所有表示层、engine → 所有
+**允许**：snn → qann、snn → ann/operators、qann → ann/operators、evaluation → 所有表示层
 
-**禁止**：ANN → QANN/SNN、QANN → SNN、任何包 → engine、基础层 → 子包
+**禁止**：ann → qann/snn、qann → snn、基础层 → 子包
+
+## API
+
+每个子包暴露独立的入口函数，用户按需组合：
+
+```python
+from unieval.qann import quantize, calibrate_ptq
+from unieval.snn import convert
+from unieval.evaluation import evaluate_energy, evaluate_accuracy, evaluate_perplexity
+```
+
+不存在全局 "Runner" 或 "Pipeline" 对象——用户自己管理模型创建、checkpoint 加载和评估组合。
 
 ## 设计模式
 
@@ -56,8 +66,8 @@ ANN 模型 → 量化 → QANN 模型 → [PTQ 校准] → 转换 → SNN Wrappe
 
 ## 扩展
 
-添加新模型族需要：ANN 模型定义 → ModelProfile → duck-typing 谓词 → PTQ rule pack → Conversion rule pack → (可选) SNN 算子 / Adapter → Runner dispatch 接线
+添加新模型族需要：ann 模型定义 → ModelProfile → duck-typing 谓词 → PTQ rule pack → Conversion rule pack → (可选) SNN 算子 / Adapter
 
-添加新量化方法：Qann/operators/ 新模块 → qann/quantization/ 新 Quantizer → (可选) SNN 转换规则
+添加新量化方法：qann/operators/ 新模块 → qann/quantization/ 新 Quantizer → (可选) SNN 转换规则
 
 添加新评估器：继承 `BaseEvaluator`，用 `@EVALUATOR_REGISTRY.register()` 注册

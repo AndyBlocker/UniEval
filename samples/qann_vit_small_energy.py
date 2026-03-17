@@ -1,10 +1,10 @@
-"""Example: QANN ViT-Small load, run, and energy evaluation.
+"""示例：QANN ViT-Small 加载、运行和能耗评估。
 
-Demonstrates the basic pipeline:
-1. Create a ViT-Small model (ANN)
-2. Apply PTQ quantization (ANN → QANN)
-3. Convert to SNN (QANN → SNN)
-4. Run energy evaluation
+演示基本 pipeline：
+1. 创建 ViT-Small 模型 (ANN)
+2. PTQ 量化 (ANN → QANN)
+3. 转换为 SNN (QANN → SNN)
+4. 能耗评估
 
 Usage:
     python samples/qann_vit_small_energy.py
@@ -13,64 +13,50 @@ Usage:
 import torch
 import torch.nn as nn
 
-from unieval.config import UniEvalConfig
-from unieval.engine.runner import UniEvalRunner
+from unieval.ann.models.vit import vit_small_patch16
+from unieval.qann import quantize, calibrate_ptq
+from unieval.snn import convert
+from unieval.evaluation import evaluate_energy
 
 
 def make_dummy_dataloader(batch_size=4, img_size=224, num_batches=2):
-    """Create a dummy dataloader for testing."""
-    dataset = [
+    """创建用于测试的 dummy dataloader。"""
+    return [
         (torch.randn(batch_size, 3, img_size, img_size),
          torch.randint(0, 1000, (batch_size,)))
         for _ in range(num_batches)
     ]
-    return dataset
 
 
 def main():
-    # 1. Configure
-    config = UniEvalConfig(
-        model_name="vit_small",
-        num_classes=1000,
-        img_size=224,
-        global_pool=True,
-    )
-    config.quant.level = 16
-    config.quant.is_softmax = False
-    config.conversion.time_step = 64
-    config.conversion.encoding_type = "analog"
-    config.conversion.level = 16
-    config.conversion.neuron_type = "ST-BIF"
-    config.conversion.is_softmax = False
-    config.evaluation.num_batches = 2
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    runner = UniEvalRunner(config)
+    # 1. 创建 ANN 模型
+    model = vit_small_patch16(num_classes=1000, global_pool=True, act_layer=nn.ReLU)
+    print(f"[ANN] ViT-Small, {sum(p.numel() for p in model.parameters()):,} params")
 
-    # 2. Create ANN model
-    model = runner.create_model(act_layer=nn.ReLU)
-    print(f"[ANN] Created {config.model_name} with {sum(p.numel() for p in model.parameters()):,} params")
+    # 2. 量化 (ANN → QANN)
+    model = quantize(model, method="ptq", level=16, is_softmax=False)
+    print("[QANN] PTQ 量化完成")
 
-    # 3. Quantize (ANN → QANN via PTQ)
-    model = runner.quantize(model, quantizer_name="ptq")
-    print("[QANN] PTQ quantization applied")
-
-    # 4. Calibrate PTQ with dummy data
-    dummy_loader = make_dummy_dataloader()
-    model = model.to(config.device)
-    runner.calibrate_ptq(model, dummy_loader, num_batches=1)
+    # 3. PTQ 校准
+    model = model.to(device)
+    calibrate_ptq(model, make_dummy_dataloader(), num_batches=1)
     model = model.cpu()
-    print("[QANN] PTQ calibration done")
+    print("[QANN] PTQ 校准完成")
 
-    # 5. Convert to SNN (QANN → SNN)
-    wrapper = runner.convert(model)
-    wrapper = wrapper.to(config.device)
+    # 4. 转换为 SNN
+    wrapper = convert(model, time_step=64, level=16, is_softmax=False)
+    wrapper = wrapper.to(device)
     wrapper.eval()
-    print("[SNN] Conversion and wrapping done")
+    print("[SNN] 转换完成")
 
-    # 6. Run energy evaluation
-    eval_loader = make_dummy_dataloader()
-    energy_result = runner.evaluate_energy(wrapper, eval_loader)
-    print(f"\n{energy_result}")
+    # 5. 能耗评估
+    result = evaluate_energy(
+        wrapper, make_dummy_dataloader(),
+        profile="vit_small", time_step=64, num_batches=2,
+    )
+    print(f"\n{result}")
 
 
 if __name__ == "__main__":

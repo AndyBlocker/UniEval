@@ -102,8 +102,10 @@ def test_model_imports():
     from unieval.ann.models.vit import vit_small_patch16, vit_base_patch16
 
 
-def test_engine_imports():
-    from unieval.engine.runner import UniEvalRunner
+def test_api_imports():
+    from unieval.qann import quantize, calibrate_ptq
+    from unieval.snn import convert
+    from unieval.evaluation import evaluate_accuracy, evaluate_energy, evaluate_perplexity
 
 
 # ===== Test 2: Registry System =====
@@ -1181,15 +1183,13 @@ def test_adapter_forward_multistep_sequential():
 
 
 def test_dvs_model_creation():
-    """DVS model should be creatable via runner."""
+    """DVS model should be creatable directly."""
     import torch.nn as nn
     from functools import partial
-    from unieval.config import UniEvalConfig
-    from unieval.engine.runner import UniEvalRunner
+    from unieval.ann.models.vit import vit_small_patch16_dvs
 
-    cfg = UniEvalConfig(model_name="vit_small_dvs", num_classes=10)
-    runner = UniEvalRunner(cfg)
-    model = runner.create_model(
+    model = vit_small_patch16_dvs(
+        num_classes=10,
         act_layer=nn.ReLU,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
     )
@@ -1234,30 +1234,23 @@ def test_full_pipeline():
     import torch
     import torch.nn as nn
     from functools import partial
-    from unieval.config import UniEvalConfig, QuantConfig, ConversionConfig, EvalConfig
-    from unieval.engine.runner import UniEvalRunner
-
-    cfg = UniEvalConfig(
-        model_name="vit_small",
-        num_classes=10,
-        quant=QuantConfig(level=16),
-        conversion=ConversionConfig(level=16, time_step=4, encoding_type="analog"),
-        evaluation=EvalConfig(num_batches=1),
-    )
-    runner = UniEvalRunner(cfg)
+    from unieval.ann.models.vit import vit_small_patch16
+    from unieval.qann import quantize
+    from unieval.snn import convert
 
     # Create model
-    model = runner.create_model(
+    model = vit_small_patch16(
+        num_classes=10, img_size=224, global_pool=True,
         act_layer=nn.ReLU,
         norm_layer=partial(nn.LayerNorm, eps=1e-6),
     )
     assert model is not None
 
     # Quantize
-    model = runner.quantize(model, quantizer_name="lsq")
+    model = quantize(model, method="lsq", level=16)
 
     # Convert
-    wrapper = runner.convert(model)
+    wrapper = convert(model, time_step=4, level=16, encoding_type="analog")
     assert isinstance(wrapper, torch.nn.Module)
 
     # Verify forward pass
