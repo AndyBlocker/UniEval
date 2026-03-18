@@ -292,20 +292,20 @@ class QuanConv2d(torch.nn.Conv2d):
         return self._conv_forward(x, quantized_weight, self.bias)
 
 
-class QuanLinear(torch.nn.Linear):
-    """Linear with quantized weights."""
+# class QuanLinear(torch.nn.Linear):
+#     """Linear with quantized weights."""
 
-    def __init__(self, m: torch.nn.Linear, quan_w_fn=None):
-        assert type(m) == torch.nn.Linear
-        super().__init__(
-            m.in_features, m.out_features,
-            bias=m.bias is not None,
-        )
-        self.quan_w_fn = quan_w_fn
-        self.weight = torch.nn.Parameter(m.weight.detach())
-        if m.bias is not None:
-            self.bias = torch.nn.Parameter(m.bias.detach())
+#     def __init__(self, m: torch.nn.Linear, quan_w_fn=None):
+#         assert type(m) == torch.nn.Linear
+#         super().__init__(
+#             m.in_features, m.out_features,
+#             bias=m.bias is not None,
+#         )
+#         self.quan_w_fn = quan_w_fn
+#         self.weight = torch.nn.Parameter(m.weight.detach())
+#         if m.bias is not None:
+#             self.bias = torch.nn.Parameter(m.bias.detach())
 
-    def forward(self, x):
-        quantized_weight = self.quan_w_fn(self.weight)
-        return torch.nn.functional.linear(x, quantized_weight, self.bias)
+#     def forward(self, x):
+#         quantized_weight = self.quan_w_fn(self.weight)
+#         return torch.nn.functional.linear(x, quantized_weight, self.bias)

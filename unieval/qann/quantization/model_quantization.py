@@ -1,11 +1,11 @@
 import torch
 import torch as t
-from ANN.models.resnet_cifar10 import BasicBlockCifar
-from QANN.operators.quanConv2d import QuanConv2dFuseBN
-from QANN.operators.quanLinear import QuanLinear
-from QANN.quantization.quantizer import LsqQuan, LsqQuanAct
-from QANN.operators.quanAvgPool import QuanAvgPool
-from QANN.operators.quanAddition import AdditionQuan
+from ...ann.models.resnet_cifar10 import BasicBlockCifar
+from ...qann.operators.quanConv2d import QuanConv2dFuseBN
+from ...qann.operators.quanLinear import QuanLinear
+from ...qann.quantization.quantizer import LsqQuan, LsqQuanAct
+from ...qann.operators.quanAvgPool import QuanAvgPool
+from ...qann.operators.quanAddition import AdditionQuan
 
 index2 = 0
 def quantized_train_model_fusebn(model,weightBit, actBit):

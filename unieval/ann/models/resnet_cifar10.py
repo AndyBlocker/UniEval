@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
-from operators.residual_addition import ResidualAddition
+from ..operators.residual_addition import ResidualAddition
 
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
@@ -77,7 +77,7 @@ class BasicBlockCifar(nn.Module):
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu2(out)
-
+        
         if self.downsample is not None:
             identity = self.downsample(x)
 
@@ -163,6 +163,7 @@ class ResNet(nn.Module):
 
     def _forward_impl(self, x):
         # See note [TorchScript super()]
+        
         self.input = x
         x = self.conv1(x)
         x = self.bn1(x)

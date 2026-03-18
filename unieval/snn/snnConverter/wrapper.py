@@ -8,6 +8,7 @@ from ..operators.base import SNNOperator
 from ..operators.layers import LLLinear
 from ...ann.models.uniaffine import UniAffineModel
 from ...ann.models.qwen3 import Qwen3Model
+from ...ann.models.resnet_cifar10 import ResNet as ResNetCifar10
 from .converter import SNNConverter
 from .adapter import ADAPTER_REGISTRY, auto_detect_adapter
 from .threshold import transfer_threshold
@@ -153,6 +154,9 @@ class SNNWrapper(nn.Module):
             from .qwen3_rules import QWEN3_CONVERSION_RULES
             from .rules import DEFAULT_CONVERSION_RULES
             conv = SNNConverter(rules=QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES)
+        elif isinstance(self.model, ResNetCifar10):
+            from .resent20_rules import RESNET20_CONVERSION_RULES
+            conv = SNNConverter(rules=RESNET20_CONVERSION_RULES)
         else:
             conv = SNNConverter()
         conv.convert(
@@ -160,6 +164,7 @@ class SNNWrapper(nn.Module):
             level=self.level,
             neuron_type=self.neuron_type,
             is_softmax=self.is_softmax,
+            time_step=self.T
         )
 
         # Initialize Judger (after conversion, so all SNN ops exist)
@@ -335,7 +340,7 @@ class SNNWrapper(nn.Module):
                     input_t = x
                 else:
                     input_t = torch.zeros_like(x)
-
+            
             output = self.step_encoded(input_t)
 
             if count == 0:

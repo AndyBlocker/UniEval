@@ -65,6 +65,11 @@ class STBIFNeuron(nn.Module, SNNOperator):
             self.neg_min = torch.tensor(0)
         self.eps = 0
 
+    
+    def __repr__(self):
+        return f"ST-BIFNeuron(level={self.level}, sym={self.sym}, pos_max={self.pos_max}, neg_min={self.neg_min}, q_threshold={self.q_threshold})"
+    
+    
     def reset(self):
         self.q = 0.0
         self.cur_output = 0.0

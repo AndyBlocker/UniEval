@@ -105,6 +105,7 @@ class LsqQuanAct(t.nn.Module):
         self.per_channel = per_channel
         self.s = t.nn.Parameter(torch.tensor(1.0),requires_grad=True)
         self.isinit = False
+        self.symmetric = symmetric
         
     def __repr__(self):
         return f"LsqQuan(thd_pos={self.thd_pos}, thd_neg={self.thd_neg}, s={self.s.data}, per_channel={self.per_channel})"
@@ -113,6 +114,7 @@ class LsqQuanAct(t.nn.Module):
     def init_from(self, x, weight=True, *args, **kwargs):
         # threshold = threshold_optimization(np.array(x.detach().cpu()), quantization_level=int(self.thd_pos), n_trial=300, eps=1e-10)
         # self.s.data = torch.tensor(threshold / (self.thd_pos),dtype=torch.float32).cuda()
+        # print("init_from")
         if self.bit >= 16:
             return 
         
@@ -182,6 +184,7 @@ class LsqQuan(t.nn.Module):
 
     
     def init_from(self, x, weight=True, *args, **kwargs):
+
         # threshold = threshold_optimization(np.array(x.detach().cpu()), quantization_level=int(self.thd_pos), n_trial=300, eps=1e-10)
         # self.s.data = torch.tensor(threshold / (self.thd_pos),dtype=torch.float32).cuda()
         if self.per_channel:

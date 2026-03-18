@@ -60,14 +60,16 @@ class QuanConv2dFuseBN(t.nn.Conv2d):
         self.absoluteValue = 0
 
     def forward(self, x):
-        
+
+        # print("QuanConv2dFuseBN Input",x.abs().mean())        
         running_std = torch.sqrt(self.running_var + self.eps)
         weight = self.weight * reshape_to_weight(self.gamma / running_std)
+
+        # print("QuanConv2dFuseBN self.bias", self.bias)
         if self.bias is not None:
             bias = self.bias * self.gamma / running_std + reshape_to_bias(self.beta - self.gamma * self.running_mean / running_std)
         else:
             bias = reshape_to_bias(self.beta - self.gamma * self.running_mean / running_std)
-
 
         quantized_weight = self.quan_w_fn(weight)
 
@@ -81,7 +83,10 @@ class QuanConv2dFuseBN(t.nn.Conv2d):
         
         out = self._conv_forward(x, quantized_weight,bias = None)        
         quantized_bias = self.quan_out_fn(bias)
+        # print("QuanConv2dFuseBN _conv_forward",out.abs().mean(), "quantized_weight", quantized_weight.abs().mean(),"quantized_bias",quantized_bias.abs().mean())        
+
         # quantized_bias = bias
+        # print("QuanConv2dFuseBN","x",x.abs().mean(), "quantized_weight", quantized_weight.abs().mean(),"out",out.abs().mean(),self.quan_out_fn)
         quantized_out = torch.clip(self.quan_out_fn(out,clip=False) + quantized_bias.reshape(1,-1,1,1),min=self.quan_out_fn.s*self.quan_out_fn.thd_neg,max=self.quan_out_fn.s*self.quan_out_fn.thd_pos)
-        
+        # print("QuanConv2dFuseBN Output",torch.nn.functional.relu(quantized_out).abs().mean())
         return quantized_out

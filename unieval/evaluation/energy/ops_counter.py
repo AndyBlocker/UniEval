@@ -12,19 +12,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..feasibility.spike_utils import spike_rate
-from ...snn.operators.neurons import IFNeuron, ORIIFNeuron
+from ...snn.operators.neurons import IFNeuron, ORIIFNeuron, STBIFNeuron
 from ...snn.operators.layers import LLLinear, LLConv2d, Spiking_LayerNorm
+from ...snn.operators.layers import SpikeLinear, SpikeConv2dFuseBN, SpikeInferAvgPool, SpikeResidualAdd
 from ...snn.operators.composites import SConv2d, SLinear
 from ...snn.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU, Spiking_SwiGLUMlp
 from ...snn.operators.uniaffine_layers import Spiking_UnifiedClipNorm, Spiking_ReGLUMlp
 from ...snn.operators.uniaffine_attention import Spiking_UniAffineAct
-from ...qann.operators.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
+from ...qann.operators.lsq import MyQuan, QAttention, QuanConv2d
+from ...qann.operators.quanConv2d import QuanConv2dFuseBN
+from ...qann.operators.quanLinear import QuanLinear
+from ...qann.operators.quanAddition import AdditionQuan
+from ...qann.operators.quanAvgPool import QuanAvgPool
+
 from ...qann.operators.ptq import PTQQuan
 from ...qann.operators.composites import (
     QConv2d as QCompConv2d, QLinear as QCompLinear, QNorm,
 )
 from ...ann.models.vit import Attention
 from ...registry import Registry
+
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +45,7 @@ def empty_syops_counter_hook(module, input, output):
 def conv_syops_counter_hook(module, input, output):
     inp = input[0]
     spike, rate, spkhistc = spike_rate(inp)
+    # print("conv rate", rate)
 
     batch_size = inp.shape[0]
     output_dims = list(output.shape[2:])
@@ -95,6 +103,16 @@ def IF_syops_counter_hook(module, input, output):
     module.__syops__[1] += int(active_elements_count)
     module.__syops__[3] += rate * 100
     module.__spkhistc__ = spkhistc
+
+def STBIF_syops_counter_hook(module, input, output):
+    # 考虑Spike tracer，memrbane和spike tracer的数量相同，因此直接乘2
+    active_elements_count = input[0].numel()
+    module.__syops__[0] += int(active_elements_count) * 2
+    spike, rate, spkhistc = spike_rate(output)
+    module.__syops__[1] += int(active_elements_count) * 2
+    module.__syops__[3] += rate * 100
+    module.__spkhistc__ = spkhistc
+
 
 
 def relu_syops_counter_hook(module, input, output):
@@ -207,6 +225,24 @@ def spiking_activation_syops_counter_hook(module, input, output):
     module.__syops__[3] += rate * 100
     module.__spkhistc__ = spkhistc
 
+def spiking_residual_syops_counter_hook(module, input, output):
+    inp1 = input[0]
+    inp2 = input[1]
+    spike1, rate1, spkhistc1 = spike_rate(inp1)
+    spike2, rate2, spkhistc2 = spike_rate(inp2)
+    
+    active_elements = 2 * inp1.numel()
+    module.__syops__[0] += active_elements
+    if spike1 and spike2:
+        module.__syops__[1] += int(inp1.numel() * rate1 + inp2.numel() * rate2)
+    else:
+        module.__syops__[2] += active_elements
+    # Use a bounded firing-rate metric in [0, 1]:
+    # residual add has two inputs; we take max(rate1, rate2) as an "effective"
+    # activity indicator to keep firing_rate interpretable and <= 100%.
+    module.__syops__[3] += max(rate1, rate2) * 100
+    module.__spkhistc__ = spkhistc1 and spkhistc2
+
 
 # ---------------------------------------------------------------------------
 # Default module mapping
@@ -218,6 +254,7 @@ def _build_default_modules_mapping():
         nn.Conv1d: conv_syops_counter_hook,
         nn.Conv2d: conv_syops_counter_hook,
         QuanConv2d: conv_syops_counter_hook,
+        QuanConv2dFuseBN: conv_syops_counter_hook,
         nn.Conv3d: conv_syops_counter_hook,
         nn.ReLU: relu_syops_counter_hook,
         MyQuan: relu_syops_counter_hook,
@@ -258,8 +295,15 @@ def _build_default_modules_mapping():
         # SNN layer wrappers (delegates to inner Linear/Conv2d but needs hook for spike rate)
         LLLinear: empty_syops_counter_hook,    # inner nn.Linear already counted
         LLConv2d: empty_syops_counter_hook,    # inner nn.Conv2d already counted
+        # ResNet:
+        SpikeResidualAdd: spiking_residual_syops_counter_hook,
+        SpikeConv2dFuseBN: conv_syops_counter_hook,
+        SpikeLinear: linear_syops_counter_hook,
+        SpikeInferAvgPool: empty_syops_counter_hook, # (sub-modules already counted)
+
         # Decoder SNN operators
         ORIIFNeuron: IF_syops_counter_hook,
+        STBIFNeuron: STBIF_syops_counter_hook,
         PTQQuan: relu_syops_counter_hook,
         Spiking_RMSNorm: spiking_norm_syops_counter_hook,
         Spiking_UnifiedClipNorm: spiking_norm_syops_counter_hook,
@@ -414,6 +458,11 @@ class OpsCounter:
                 syops[0] /= batch_counter
                 syops[1] /= batch_counter
                 syops[2] /= batch_counter
-                syops[3] /= times_counter
+                if syops[2] > 0: # 如果含mac操作则强制为100.0
+                    syops[3] = 100.0
+                else:
+                    syops[3] /= times_counter
+                    
+                print("times_counter",times_counter)
                 stats.append((name, module, syops))
         return stats
