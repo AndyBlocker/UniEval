@@ -385,12 +385,11 @@ def main() -> None:
         )
 
         state.epoch = epoch
-        save_checkpoint(ckpt_last, model, optimizer, state, args)
-
         if te["acc"] > state.best_acc:
             state.best_acc = te["acc"]
             save_checkpoint(ckpt_best, model, optimizer, state, args)
             print(f"[QAT] New best acc: {state.best_acc:.4f} | saved to {ckpt_best}")
+        save_checkpoint(ckpt_last, model, optimizer, state, args)
 
 
 if __name__ == "__main__":

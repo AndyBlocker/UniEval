@@ -145,10 +145,15 @@ def save_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, sta
     )
 
 
-def load_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer) -> TrainState:
+def load_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, device: torch.device = None) -> TrainState:
     ckpt = torch.load(path, map_location="cpu")
     model.load_state_dict(ckpt["model"])
     optimizer.load_state_dict(ckpt["optimizer"])
+    if device is not None:
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(device)
     return TrainState(epoch=int(ckpt.get("epoch", 0)), best_acc=float(ckpt.get("best_acc", 0.0)))
 
 
@@ -247,7 +252,7 @@ def main() -> None:
 
     state = TrainState(epoch=0, best_acc=0.0)
     if args.resume:
-        state = load_checkpoint(args.resume, model, optimizer)
+        state = load_checkpoint(args.resume, model, optimizer, device=device)
         print(f"Resumed from {args.resume} | epoch={state.epoch} | best_acc={state.best_acc:.4f}")
 
     # 只评估
@@ -281,15 +286,12 @@ def main() -> None:
             f"test loss={te['loss']:.4f} acc={te['acc']:.4f}"
         )
 
-        # 保存 last
         state.epoch = epoch
-        save_checkpoint(ckpt_last, model, optimizer, state)
-
-        # 保存 best
         if te["acc"] > state.best_acc:
             state.best_acc = te["acc"]
             save_checkpoint(ckpt_best, model, optimizer, state)
             print(f"New best acc: {state.best_acc:.4f} | saved to {ckpt_best}")
+        save_checkpoint(ckpt_last, model, optimizer, state)
 
 
 if __name__ == "__main__":
