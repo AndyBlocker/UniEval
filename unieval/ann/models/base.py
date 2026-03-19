@@ -90,20 +90,18 @@ MODEL_PROFILE_REGISTRY.register_obj("uniaffine", DecoderModelProfile(
 
 @dataclass
 class CNNModelProfile:
-    """Extended profile for decoder-only models with GQA and sequence-based attention.
-
-    Adds num_kv_heads for GQA-aware energy calculation, and seq_len
-    which replaces patch_size^2 in the SSA energy formula.
+    """Profile for CNN models (ResNet etc.).
 
     Attributes:
-        num_kv_heads: Number of K/V attention heads (for GQA).
-        seq_len: Sequence length (replaces patch_size^2 in SSA energy formula).
-        head_dim: Per-head dimension.
-        ffn_hidden_size: FFN intermediate dimension.
+        depth: Network depth (e.g. 20 for ResNet20).
+        input_channel: Number of base channels.
+        stages: Number of stages in the network.
+        time_steps: SNN time steps for energy evaluation.
     """
     depth: int = 8
     input_channel: int = 16
     stages: int = 4
+    time_steps: int = 32
     
 
 MODEL_PROFILE_REGISTRY.register_obj("resnet20", CNNModelProfile(

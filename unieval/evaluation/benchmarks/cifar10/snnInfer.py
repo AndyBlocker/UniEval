@@ -501,10 +501,8 @@ def main() -> None:
         load_qann_weights(model, qann_ckpt)        
         # print(f"Resumed from {args.resume} | epoch={state.epoch} | best_acc={state.best_acc:.4f}")
 
-    force_set_is_init_true(model)
-    # print(model)
-    # metrics = evaluate(model, test_loader, device)
-    # print(f"[QAT] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")
+    if qann_ckpt:
+        force_set_is_init_true(model)
 
     from unieval.snn import convert
     wrapper = convert(model, time_step=args.time_step, level=2 ** args.ActBit, is_softmax=False)
