@@ -495,14 +495,15 @@ def main() -> None:
 
     state = TrainState(epoch=0, best_acc=0.0)
     qann_ckpt = resolve_qann_checkpoint(args.qann_ckpt)
-    if qann_ckpt:
-        # state = load_checkpoint(args.resume, model, optimizer)
-        print(f"[QAT] Loading QANN weights from: {qann_ckpt}")
-        load_qann_weights(model, qann_ckpt)        
-        # print(f"Resumed from {args.resume} | epoch={state.epoch} | best_acc={state.best_acc:.4f}")
-
-    if qann_ckpt:
-        force_set_is_init_true(model)
+    if not qann_ckpt:
+        raise SystemExit(
+            "[Error] --qann-ckpt is required for SNN inference. "
+            "Without trained QANN weights the quantization scales are "
+            "placeholders and SNN results would be meaningless."
+        )
+    print(f"[QAT] Loading QANN weights from: {qann_ckpt}")
+    load_qann_weights(model, qann_ckpt)
+    force_set_is_init_true(model)
 
     from unieval.snn import convert
     wrapper = convert(model, time_step=args.time_step, level=2 ** args.ActBit, is_softmax=False)

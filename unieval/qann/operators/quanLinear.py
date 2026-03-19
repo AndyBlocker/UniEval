@@ -23,16 +23,18 @@ class QuanLinear(t.nn.Linear):
         self.l2_loss = 0.0
         self.absoluteValue = 0.0
         
-    def forward(self, x):        
+    def forward(self, x):
         quantized_weight = self.quan_w_fn(self.weight)
 
+        # Weight-only quantization path (no quan_out_fn)
+        if self.quan_out_fn is None:
+            return t.nn.functional.linear(x, quantized_weight, self.bias)
+
         if self.is_init == False:
-            # print("in QuanLinear input_mean:",x.abs().mean().item())
             bias = self.bias.reshape(1, -1) if self.bias is not None else 0.0
             out = t.nn.functional.linear(x, self.weight, bias=None) + bias
-            self.quan_out_fn.init_from(out,weight=False)
+            self.quan_out_fn.init_from(out, weight=False)
             self.is_init = True
-            # print("in QuanLinear output_mean:",out.abs().mean().item())
             return out
 
         out = t.nn.functional.linear(x, quantized_weight, bias=None)
@@ -40,9 +42,5 @@ class QuanLinear(t.nn.Linear):
         if self.bias is not None:
             quantized_bias = self.quan_out_fn(self.bias).reshape(1, -1)
             quantized_out = quantized_out + quantized_bias
-        quantized_out = torch.clip(quantized_out,min=self.quan_out_fn.s*self.quan_out_fn.thd_neg,max=self.quan_out_fn.s*self.quan_out_fn.thd_pos)
-
-        # self.l1_loss = cal_l1_loss_full(quantized_out.flatten(1))
-        # self.l2_loss = 0
-        # self.absoluteValue = torch.abs(quantized_out.detach()/self.quan_out_fn.s.detach()).sum().item()
+        quantized_out = torch.clip(quantized_out, min=self.quan_out_fn.s * self.quan_out_fn.thd_neg, max=self.quan_out_fn.s * self.quan_out_fn.thd_pos)
         return quantized_out
