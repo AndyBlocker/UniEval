@@ -284,7 +284,7 @@ def main() -> None:
     _ensure_import_path()
 
     parser = argparse.ArgumentParser(description="QAT training for ResNet20 on CIFAR-10 (QANN)")
-    parser.add_argument("--data-dir", type=str, default="/home/youkang/gpfs-share/cifar10", help="CIFAR-10 数据目录（自动下载）")
+    parser.add_argument("--data-dir", type=str, default="./data/cifar10", help="CIFAR-10 数据目录（自动下载）")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--workers", type=int, default=4)
@@ -302,7 +302,7 @@ def main() -> None:
     parser.add_argument(
         "--ann-ckpt",
         type=str,
-        default="/home/youkang/gpfs-share/framework/snn_framework/Evaluation/benchmarks/cifar10/runs/resnet20_cifar10",
+        default="",
         help="训练好的 ANN checkpoint（文件或目录）。目录会自动选择 best.pt/last.pt",
     )
     args = parser.parse_args()
@@ -322,11 +322,12 @@ def main() -> None:
 
     model = ResNet20(num_classes=10)
 
-    # 3) 先加载你训练好的 ANN 权重，再做量化替换
-    ann_ckpt = resolve_ann_checkpoint(args.ann_ckpt)
-    if ann_ckpt:
-        print(f"[QAT] Loading ANN weights from: {ann_ckpt}")
-        load_ann_weights(model, ann_ckpt)
+    # 3) 先加载 ANN 权重（resume 时跳过，checkpoint 已包含完整权重）
+    if not args.resume:
+        ann_ckpt = resolve_ann_checkpoint(args.ann_ckpt)
+        if ann_ckpt:
+            print(f"[QAT] Loading ANN weights from: {ann_ckpt}")
+            load_ann_weights(model, ann_ckpt)
 
     # 4) 按你指定的量化模型生成方式进行 QAT 替换与 BN fuse
     from unieval.qann.quantization.model_quantization import quantized_train_model_fusebn
