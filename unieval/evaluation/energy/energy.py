@@ -20,8 +20,8 @@ import torch.nn as nn
 
 from ..benchmarks.base import BaseEvaluator, EvalResult
 from .ops_counter import OpsCounter
-from ...snn.operators.neurons import IFNeuron
-from ...snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
+from ...snn.operators.neurons import IFNeuron, STBIFNeuron
+from ...snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm, SpikeResidualAdd, SpikeInferAvgPool
 from ...snn.operators.composites import SConv2d, SLinear
 from ...snn.operators.attention import SAttention
 from ...snn.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU
@@ -31,7 +31,7 @@ from ...snn.operators.qwen3_attention import SQwen3Attention
 from ...qann.operators.lsq import MyQuan
 from ...snn.snnConverter.wrapper import SNNWrapper
 from ...config import EnergyConfig
-from ...ann.models.base import ModelProfile, DecoderModelProfile
+from ...ann.models.base import ModelProfile, DecoderModelProfile, CNNModelProfile
 from ...registry import EVALUATOR_REGISTRY
 
 
@@ -61,9 +61,15 @@ def _is_energy_relevant(name, module):
     # Norms
     if isinstance(module, (nn.LayerNorm, Spiking_LayerNorm)):
         return True
-    # Neurons
-    if isinstance(module, IFNeuron):
+    # Neurons (IF and ST-BIF)
+    if isinstance(module, (IFNeuron, STBIFNeuron)):
         return True
+    # CNN SNN operators
+    if isinstance(module, SpikeResidualAdd):
+        return True
+    # SpikeInferAvgPool uses empty hook (sub-modules counted), skip
+    if isinstance(module, SpikeInferAvgPool):
+        return False
     # Decoder SNN norms and activations
     if isinstance(module, (Spiking_RMSNorm, Spiking_UnifiedClipNorm,
                            Spiking_SiLU, Spiking_UniAffineAct)):
@@ -173,11 +179,7 @@ class EnergyEvaluator(BaseEvaluator):
             if not _is_energy_relevant(name, module):
                 continue
 
-            # Conv layers need Tsteps correction on firing rate,
-            # matching original SpikeZIP-TF flops_counter.py line 58
             firing_rate_pct = syops[3]
-            if _is_conv_layer(name, module):
-                firing_rate_pct = firing_rate_pct * time_steps
 
             if abs(firing_rate_pct - 100) < 1e-4:  # fr ≈ 100% → MAC
                 total_mac_ops += syops[2]
@@ -189,6 +191,7 @@ class EnergyEvaluator(BaseEvaluator):
                 "total_ops": syops[0],
                 "ac_ops": syops[1],
                 "mac_ops": syops[2],
+                # firing_rate is a ratio in [0, 1] (not percentage)
                 "firing_rate": firing_rate_pct / 100.0,
             })
 
@@ -200,6 +203,8 @@ class EnergyEvaluator(BaseEvaluator):
                 ssa_ac, ssa_qkv_fr = self._compute_decoder_ssa_energy(
                     inner, self.profile, times_counter
                 )
+            elif isinstance(self.profile, CNNModelProfile):
+                ssa_ac = 0.0
             else:
                 ssa_ac, ssa_qkv_fr = self._compute_ssa_energy(
                     inner, self.profile, times_counter
@@ -215,19 +220,33 @@ class EnergyEvaluator(BaseEvaluator):
         e_ac_total = total_ac_ops_g * e_ac     # mJ
         e_total = e_mac_total + e_ac_total
 
-        return EvalResult(
-            metrics={
-                "energy_mJ": e_total,
-                "e_mac_mJ": e_mac_total,
-                "e_ac_mJ": e_ac_total,
-                "mac_ops_G": total_mac_ops_g,
-                "ac_ops_G": total_ac_ops_g,
-            },
-            details={
-                "layers": layer_details,
-                "ssa_qkv_firing_rates": ssa_qkv_fr,
-            },
-        )
+        if isinstance(self.profile, CNNModelProfile):
+            return EvalResult(
+                metrics={
+                    "energy_mJ": e_total,
+                    "e_mac_mJ": e_mac_total,
+                    "e_ac_mJ": e_ac_total,
+                    "mac_ops_G": total_mac_ops_g,
+                    "ac_ops_G": total_ac_ops_g,
+                },
+                details={
+                    "layers": layer_details,
+                },
+            )
+        else:
+            return EvalResult(
+                metrics={
+                    "energy_mJ": e_total,
+                    "e_mac_mJ": e_mac_total,
+                    "e_ac_mJ": e_ac_total,
+                    "mac_ops_G": total_mac_ops_g,
+                    "ac_ops_G": total_ac_ops_g,
+                },
+                details={
+                    "layers": layer_details,
+                    "ssa_qkv_firing_rates": ssa_qkv_fr,
+                },
+            )
 
     def _compute_ssa_energy(self, wrapper, profile, times_counter):
         """Compute SSA (Spiking Self-Attention) energy.

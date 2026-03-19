@@ -87,3 +87,25 @@ MODEL_PROFILE_REGISTRY.register_obj("uniaffine", DecoderModelProfile(
     ffn_hidden_size=3072, time_steps=64,
     patch_size=1, img_size=1,  # Not applicable for decoder models
 ))
+
+@dataclass
+class CNNModelProfile:
+    """Profile for CNN models (ResNet etc.).
+
+    Attributes:
+        depth: Network depth (e.g. 20 for ResNet20).
+        input_channel: Number of base channels.
+        stages: Number of stages in the network.
+        time_steps: SNN time steps for energy evaluation.
+    """
+    depth: int = 8
+    input_channel: int = 16
+    stages: int = 4
+    time_steps: int = 32
+    
+
+MODEL_PROFILE_REGISTRY.register_obj("resnet20", CNNModelProfile(
+    depth=20, input_channel=16, stages=4,
+))
+
+    

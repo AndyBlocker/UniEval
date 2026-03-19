@@ -150,6 +150,7 @@ class SNNWrapper(nn.Module):
             level=self.level,
             neuron_type=self.neuron_type,
             is_softmax=self.is_softmax,
+            time_step=self.T
         )
 
         # Initialize Judger (after conversion, so all SNN ops exist)
@@ -325,7 +326,7 @@ class SNNWrapper(nn.Module):
                     input_t = x
                 else:
                     input_t = torch.zeros_like(x)
-
+            
             output = self.step_encoded(input_t)
 
             if count == 0:
