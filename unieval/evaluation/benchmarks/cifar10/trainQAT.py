@@ -150,11 +150,17 @@ def save_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, sta
     )
 
 
-def load_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer) -> TrainState:
+def load_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, device: torch.device = None) -> TrainState:
     ckpt = torch.load(path, map_location="cpu")
     msg = model.load_state_dict(ckpt["model"])
     optimizer.load_state_dict(ckpt["optimizer"])
-    print("msg",msg)
+    # Migrate optimizer state tensors to the target device
+    if device is not None:
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(device)
+    print("msg", msg)
     return TrainState(epoch=int(ckpt.get("epoch", 0)), best_acc=float(ckpt.get("best_acc", 0.0)))
 
 
@@ -343,11 +349,12 @@ def main() -> None:
 
     state = TrainState(epoch=0, best_acc=0.0)
     if args.resume:
-        state = load_checkpoint(args.resume, model, optimizer)
+        state = load_checkpoint(args.resume, model, optimizer, device=device)
         print(f"Resumed from {args.resume} | epoch={state.epoch} | best_acc={state.best_acc:.4f}")
 
     if args.eval_only:
-        force_set_is_init_true(model)
+        if args.resume:
+            force_set_is_init_true(model)
         print(model)
         metrics = evaluate(model, test_loader, device)
         print(f"[QAT] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")

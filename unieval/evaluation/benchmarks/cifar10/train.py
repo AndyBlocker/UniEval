@@ -28,15 +28,13 @@ def _project_paths() -> Tuple[str, str]:
 
 
 def _ensure_import_path() -> None:
-    """
-    由于 resnet_cifar10.py 内部使用：
-        from operators.residual_addition import ResidualAddition
-    因此需要将 snn_framework/ANN 加入 sys.path，使得 `operators` / `models` 作为顶层包可导入。
-    """
+    """确保 repo root 在 sys.path 中，以支持 `import unieval` 绝对导入。"""
 
-    _, ann_dir = _project_paths()
-    if ann_dir not in sys.path:
-        sys.path.insert(0, ann_dir)
+    benchmark_dir, ann_dir = _project_paths()
+    repo_root = os.path.abspath(os.path.join(benchmark_dir, "..", "..", "..", ".."))
+    for p in (repo_root, ann_dir):
+        if p not in sys.path:
+            sys.path.insert(0, p)
 
 
 def set_seed(seed: int) -> None:
@@ -233,8 +231,7 @@ def main() -> None:
     train_loader, test_loader = build_dataloaders(args.data_dir, args.batch_size, args.workers)
 
     # 2) 模型
-    # 说明：resnet_cifar10.py 中定义的构造函数名是 ResNet20（首字母大写）
-    from ....ann.models.resnet_cifar10 import ResNet20
+    from unieval.ann.models.resnet_cifar10 import ResNet20
 
     model = ResNet20(num_classes=10).to(device)
 
