@@ -20,8 +20,8 @@ import torch.nn as nn
 
 from ..benchmarks.base import BaseEvaluator, EvalResult
 from .ops_counter import OpsCounter
-from ...snn.operators.neurons import IFNeuron
-from ...snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
+from ...snn.operators.neurons import IFNeuron, STBIFNeuron
+from ...snn.operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm, SpikeResidualAdd, SpikeInferAvgPool
 from ...snn.operators.composites import SConv2d, SLinear
 from ...snn.operators.attention import SAttention
 from ...snn.operators.decoder_layers import Spiking_RMSNorm, Spiking_SiLU
@@ -61,9 +61,15 @@ def _is_energy_relevant(name, module):
     # Norms
     if isinstance(module, (nn.LayerNorm, Spiking_LayerNorm)):
         return True
-    # Neurons
-    if isinstance(module, IFNeuron):
+    # Neurons (IF and ST-BIF)
+    if isinstance(module, (IFNeuron, STBIFNeuron)):
         return True
+    # CNN SNN operators
+    if isinstance(module, SpikeResidualAdd):
+        return True
+    # SpikeInferAvgPool uses empty hook (sub-modules counted), skip
+    if isinstance(module, SpikeInferAvgPool):
+        return False
     # Decoder SNN norms and activations
     if isinstance(module, (Spiking_RMSNorm, Spiking_UnifiedClipNorm,
                            Spiking_SiLU, Spiking_UniAffineAct)):
@@ -170,12 +176,9 @@ class EnergyEvaluator(BaseEvaluator):
         layer_details = []
 
         for name, module, syops in layer_stats:
-            # NOTE:
-            # OpsCounter.get_per_layer_stats already normalizes syops[3] by
-            # times_counter (= time_step per forward). Therefore syops[3] is
-            # already an average firing-rate percentage per timestep.
-            # Do NOT multiply by time_steps again; otherwise firing_rate can
-            # exceed 100% and firing_rate (0~1) can exceed 1.0.
+            if not _is_energy_relevant(name, module):
+                continue
+
             firing_rate_pct = syops[3]
 
             if abs(firing_rate_pct - 100) < 1e-4:  # fr ≈ 100% → MAC

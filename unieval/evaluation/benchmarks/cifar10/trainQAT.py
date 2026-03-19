@@ -357,7 +357,14 @@ def main() -> None:
     if args.eval_only:
         if args.resume:
             force_set_is_init_true(model)
-        print(model)
+        else:
+            # Calibration pass: first forward initializes quantizer scales
+            model.train()
+            with torch.no_grad():
+                for x, _ in train_loader:
+                    model(x.to(device))
+                    break
+            model.eval()
         metrics = evaluate(model, test_loader, device)
         print(f"[QAT] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")
         return
