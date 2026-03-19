@@ -31,7 +31,7 @@ from ...snn.operators.qwen3_attention import SQwen3Attention
 from ...qann.operators.lsq import MyQuan
 from ...snn.snnConverter.wrapper import SNNWrapper
 from ...config import EnergyConfig
-from ...ann.models.base import ModelProfile, DecoderModelProfile
+from ...ann.models.base import ModelProfile, DecoderModelProfile, CNNModelProfile
 from ...registry import EVALUATOR_REGISTRY
 
 
@@ -170,14 +170,13 @@ class EnergyEvaluator(BaseEvaluator):
         layer_details = []
 
         for name, module, syops in layer_stats:
-            if not _is_energy_relevant(name, module):
-                continue
-
-            # Conv layers need Tsteps correction on firing rate,
-            # matching original SpikeZIP-TF flops_counter.py line 58
+            # NOTE:
+            # OpsCounter.get_per_layer_stats already normalizes syops[3] by
+            # times_counter (= time_step per forward). Therefore syops[3] is
+            # already an average firing-rate percentage per timestep.
+            # Do NOT multiply by time_steps again; otherwise firing_rate can
+            # exceed 100% and firing_rate (0~1) can exceed 1.0.
             firing_rate_pct = syops[3]
-            if _is_conv_layer(name, module):
-                firing_rate_pct = firing_rate_pct * time_steps
 
             if abs(firing_rate_pct - 100) < 1e-4:  # fr ≈ 100% → MAC
                 total_mac_ops += syops[2]
@@ -189,6 +188,7 @@ class EnergyEvaluator(BaseEvaluator):
                 "total_ops": syops[0],
                 "ac_ops": syops[1],
                 "mac_ops": syops[2],
+                # firing_rate is a ratio in [0, 1] (not percentage)
                 "firing_rate": firing_rate_pct / 100.0,
             })
 
@@ -200,6 +200,8 @@ class EnergyEvaluator(BaseEvaluator):
                 ssa_ac, ssa_qkv_fr = self._compute_decoder_ssa_energy(
                     inner, self.profile, times_counter
                 )
+            elif isinstance(self.profile, CNNModelProfile):
+                ssa_ac = 0.0
             else:
                 ssa_ac, ssa_qkv_fr = self._compute_ssa_energy(
                     inner, self.profile, times_counter
@@ -215,19 +217,33 @@ class EnergyEvaluator(BaseEvaluator):
         e_ac_total = total_ac_ops_g * e_ac     # mJ
         e_total = e_mac_total + e_ac_total
 
-        return EvalResult(
-            metrics={
-                "energy_mJ": e_total,
-                "e_mac_mJ": e_mac_total,
-                "e_ac_mJ": e_ac_total,
-                "mac_ops_G": total_mac_ops_g,
-                "ac_ops_G": total_ac_ops_g,
-            },
-            details={
-                "layers": layer_details,
-                "ssa_qkv_firing_rates": ssa_qkv_fr,
-            },
-        )
+        if isinstance(self.profile, CNNModelProfile):
+            return EvalResult(
+                metrics={
+                    "energy_mJ": e_total,
+                    "e_mac_mJ": e_mac_total,
+                    "e_ac_mJ": e_ac_total,
+                    "mac_ops_G": total_mac_ops_g,
+                    "ac_ops_G": total_ac_ops_g,
+                },
+                details={
+                    "layers": layer_details,
+                },
+            )
+        else:
+            return EvalResult(
+                metrics={
+                    "energy_mJ": e_total,
+                    "e_mac_mJ": e_mac_total,
+                    "e_ac_mJ": e_ac_total,
+                    "mac_ops_G": total_mac_ops_g,
+                    "ac_ops_G": total_ac_ops_g,
+                },
+                details={
+                    "layers": layer_details,
+                    "ssa_qkv_firing_rates": ssa_qkv_fr,
+                },
+            )
 
     def _compute_ssa_energy(self, wrapper, profile, times_counter):
         """Compute SSA (Spiking Self-Attention) energy.

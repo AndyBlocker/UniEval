@@ -10,7 +10,9 @@ from ..operators.neurons import IFNeuron
 from ..operators.layers import LLConv2d, LLLinear, Spiking_LayerNorm
 from ..operators.composites import SConv2d, SLinear
 from ..operators.attention import SAttention
-from ...qann.operators.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
+from ...qann.operators.lsq import MyQuan, QAttention, QuanConv2d
+from ...qann.operators.quanConv2d import QuanConv2dFuseBN
+from ...qann.operators.quanLinear import QuanLinear
 from ...qann.operators.ptq import PTQQuan
 from ...qann.operators.composites import (
     QConv2d as QCompConv2d, QLinear as QCompLinear, QNorm,
