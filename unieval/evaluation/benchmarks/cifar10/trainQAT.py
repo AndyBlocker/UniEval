@@ -135,31 +135,32 @@ def train_one_epoch(
     }
 
 
-def save_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, state: TrainState, args: argparse.Namespace) -> None:
+def save_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, state: TrainState, args: argparse.Namespace, scheduler=None) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "epoch": state.epoch,
-            "best_acc": state.best_acc,
-            "WeightBit": int(args.WeightBit),
-            "ActBit": int(args.ActBit),
-        },
-        path,
-    )
+    data = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "epoch": state.epoch,
+        "best_acc": state.best_acc,
+        "WeightBit": int(args.WeightBit),
+        "ActBit": int(args.ActBit),
+    }
+    if scheduler is not None:
+        data["scheduler"] = scheduler.state_dict()
+    torch.save(data, path)
 
 
-def load_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, device: torch.device = None) -> TrainState:
+def load_checkpoint(path: str, model: nn.Module, optimizer: optim.Optimizer, device: torch.device = None, scheduler=None) -> TrainState:
     ckpt = torch.load(path, map_location="cpu")
     msg = model.load_state_dict(ckpt["model"])
     optimizer.load_state_dict(ckpt["optimizer"])
-    # Migrate optimizer state tensors to the target device
     if device is not None:
         for state in optimizer.state.values():
             for k, v in state.items():
                 if torch.is_tensor(v):
                     state[k] = v.to(device)
+    if scheduler is not None and "scheduler" in ckpt:
+        scheduler.load_state_dict(ckpt["scheduler"])
     print("msg", msg)
     return TrainState(epoch=int(ckpt.get("epoch", 0)), best_acc=float(ckpt.get("best_acc", 0.0)))
 
@@ -349,7 +350,7 @@ def main() -> None:
 
     state = TrainState(epoch=0, best_acc=0.0)
     if args.resume:
-        state = load_checkpoint(args.resume, model, optimizer, device=device)
+        state = load_checkpoint(args.resume, model, optimizer, device=device, scheduler=scheduler)
         print(f"Resumed from {args.resume} | epoch={state.epoch} | best_acc={state.best_acc:.4f}")
 
     if args.eval_only:
@@ -387,9 +388,9 @@ def main() -> None:
         state.epoch = epoch
         if te["acc"] > state.best_acc:
             state.best_acc = te["acc"]
-            save_checkpoint(ckpt_best, model, optimizer, state, args)
+            save_checkpoint(ckpt_best, model, optimizer, state, args, scheduler=scheduler)
             print(f"[QAT] New best acc: {state.best_acc:.4f} | saved to {ckpt_best}")
-        save_checkpoint(ckpt_last, model, optimizer, state, args)
+        save_checkpoint(ckpt_last, model, optimizer, state, args, scheduler=scheduler)
 
 
 if __name__ == "__main__":
