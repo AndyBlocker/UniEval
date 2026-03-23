@@ -317,7 +317,7 @@ class SpikeConv2dFuseBN(t.nn.Conv2d, SNNOperator):
         self.thd_pos = m.quan_out_fn.thd_pos
 
         running_std = torch.sqrt(self.m.running_var + self.m.eps)
-        self.weight.data = m.weight.cuda()
+        self.weight.data = m.weight
         # print(self.weight.mean())
         weight = self.weight * reshape_to_weight(self.m.gamma / running_std)
         self.spike = True
@@ -362,30 +362,15 @@ class SpikeConv2dFuseBN(t.nn.Conv2d, SNNOperator):
             self.neuron.reset()
     
     def forward(self,x):
-        # if self.is_first:
-        #     x = self.neuron_first(x)
-        
-        # self.accu1 = self.accu1 + x
-        # if self.t == 63:
-        #     print("SpikeConv2dFuseBN Input",self.accu1.abs().mean())
-
         out = self._conv_forward(x, self.weight, bias = None)      
-        # self.accu2 = self.accu2 +  out 
-        # if self.t == 63:
-        #     print("SpikeConv2dFuseBN _conv_forward",self.accu2.abs().mean(), "self.weight", self.weight.abs().mean(),"self.bias",self.bias.abs().mean())
-        # print("SpikeConv2dFuseBN","x",x.abs().mean(), "self.weight", self.weight.abs().mean(),"out",out.abs().mean())
+
         if self.t == 0:
-            # print("out.shape",out.shape,"self.bias.shape",self.bias.shape)
             spike_out = self.neuron(out + self.bias.reshape(1,-1,1,1))
         else:
             spike_out = self.neuron(out)
-        # print("SpikeConv2dFuseBN", spike_out)
 
         self.t = self.t + 1
         self.is_work = bool(getattr(self.neuron, "is_work", True))
-        # self.accu = self.accu + spike_out
-        # if self.t == 64:
-        #     print("SpikeConv2dFuseBN Output",self.accu.abs().mean())
         
         return spike_out
     

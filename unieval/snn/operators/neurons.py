@@ -76,6 +76,8 @@ class STBIFNeuron(nn.Module, SNNOperator):
         self.acc_q = 0.0
         self.is_work = False
 
+
+    
     def forward(self, input):
         x = input / self.q_threshold
         if (not torch.is_tensor(x)) and x == 0.0 and \

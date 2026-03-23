@@ -427,7 +427,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--log-interval", type=int, default=100)
-    parser.add_argument("--out-dir", type=str, default="./runs/resnet20_cifar10_qat")
+    parser.add_argument("--out-dir", type=str, default="/home/kang_you/UniEval/unieval/evaluation/benchmarks/cifar10/runs/resnet20_cifar10_snn/")
     parser.add_argument("--resume", type=str, default="", help="checkpoint 路径（可选）")
     parser.add_argument("--eval-only", action="store_true", help="只评估，不训练")
     parser.add_argument("--WeightBit", type=int, default=4)
@@ -503,8 +503,8 @@ def main() -> None:
 
     force_set_is_init_true(model)
     # print(model)
-    # metrics = evaluate(model, test_loader, device)
-    # print(f"[QAT] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")
+    metrics = evaluate(model, test_loader, device)
+    print(f"[QAT] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")
 
     from unieval.snn import convert
     wrapper = convert(model, time_step=args.time_step, level=2 ** args.ActBit, is_softmax=False)
@@ -513,8 +513,32 @@ def main() -> None:
     
     # print(wrapper)
     print("[SNN] 转换完成")    
-    # metrics = evaluateSNN(wrapper, test_loader, device)
-    # print(f"[SNN] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")        
+    metrics = evaluateSNN(wrapper, test_loader, device)
+    print(f"[SNN] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")        
+    
+    from unieval.evaluation.feasibility.check_hooker import Feasibility_checker, results_to_table
+    
+    temporal_size = 1
+    spatial_dimension = 1
+    x_global = torch.randn(2, 3, 32, 32).to(device)
+    print("[SNN] 可行性评估")    
+    results = Feasibility_checker(
+        wrapper,
+        temporal_size=temporal_size,
+        spatial_dimension=spatial_dimension,
+        x_global=x_global,
+        model_name="resnet20",
+        verbose=False,
+        ignore_error_modules=True,
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    results_to_table(
+        results,
+        include_skipped=True,
+        exclude_skipped_reasons=["cannot infer or capture input"],
+        csv_path=os.path.join(args.out_dir, "feasibility.csv"),
+    )
     
     from unieval.evaluation import evaluate_energy
     print("[SNN] 能耗评估")    
@@ -528,6 +552,20 @@ def main() -> None:
     print(format_details_layers_table(details, topk=80))
     print("\n[Details] raw dict (filtered zero-ops)")
     print(details)
+    
+    print("[SNN] 硬件仿真器结果")
+    from unieval.evaluation import simulater_fast_evaluate
+    import yaml
+    hw_config = yaml.load(open('/home/kang_you/UniEval/configs/hardware_param.yaml', 'r'), Loader=yaml.FullLoader)
+    result = simulater_fast_evaluate(
+        wrapper, test_loader,
+        profile="resnet20", time_step=args.time_step, num_batches=10, hardware_config=hw_config
+    )
+    energy = result['total_energy']
+    area = result['total_area']
+    latency = result['total_latency']
+    print(f"energy:{energy} mJ, area:{area} mm^2, latency:{latency} ms")    
+    
     
 if __name__ == "__main__":
     main()

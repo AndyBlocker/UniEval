@@ -59,3 +59,19 @@ class SNNOperator:
             output_seq: [T, B, ...] tensor of temporal outputs.
         """
         return torch.stack([self(x_seq[t]) for t in range(x_seq.shape[0])])
+    
+    
+    def forward_to_teq(self, input):
+        out = 0.0
+        count1 = 0
+        zeros = torch.zeros_like(input)
+        while(1):
+            if count1 == 0:
+                out_this_t = self.forward(input)
+            else:
+                out_this_t = self.forward(zeros)
+            if out_this_t.abs().sum() == 0:
+                break
+            out = out + out_this_t
+            count1 = count1 + 1
+        return out        

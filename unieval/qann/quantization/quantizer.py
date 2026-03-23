@@ -130,7 +130,7 @@ class LsqQuanAct(t.nn.Module):
             # self.s = t.nn.Parameter(x.detach().abs().mean() * 2 / (self.thd_pos ** 0.5))
             # print(self.s)
             threshold = threshold_optimization(np.array(x.detach().cpu()), quantization_level=int(self.thd_pos), n_trial=1000, eps=1e-10)
-            self.s.data = torch.tensor(threshold / (self.thd_pos),dtype=torch.float32).cuda()
+            self.s.data = torch.tensor(threshold / (self.thd_pos),dtype=torch.float32).to(x.device)
         #     # print(torch.quantile(x.detach().mean(dim=0),0.95), torch.quantile(x.detach().mean(dim=0),0.05))
         #     self.s = t.nn.Parameter( (torch.quantile(x.detach().mean(dim=0),0.99)-torch.quantile(x.detach().mean(dim=0),0.01)) / ((self.thd_pos - self.thd_neg)))
         #     print(self.s)
