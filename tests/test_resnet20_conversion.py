@@ -138,7 +138,7 @@ def test_old_vs_new():
     out_new, T_new = run_snn(wrapper_new, x, device)
     print(f"  New SNN output shape: {out_new.shape}, T={T_new}, mean: {out_new.mean():.6f}")
 
-    # Compare
+    # Compare old vs new
     diff = (out_old - out_new).abs()
     max_diff = diff.max().item()
     mean_diff = diff.mean().item()
@@ -149,51 +149,24 @@ def test_old_vs_new():
     print(f"  Mean absolute diff: {mean_diff:.8f}")
     print(f"  Mean relative diff: {rel_diff:.8f}")
 
-    if max_diff < 1e-4:
-        print("  PASS: Old and New conversion produce identical results!")
-    elif max_diff < 1e-2:
-        print("  WARN: Small numerical difference (likely float precision)")
-    else:
-        print("  FAIL: Significant difference between old and new conversion")
+    assert max_diff < 1e-2, (
+        f"Old vs New conversion diverged: max_diff={max_diff:.8f} > 1e-2"
+    )
 
     # Test UNIVERSAL rules
     print("\n[Bonus] UNIVERSAL rules (auto-match)...")
     wrapper_uni = convert_universal(model_uni, time_step=time_step, level=level)
     out_uni, T_uni = run_snn(wrapper_uni, x, device)
     diff_uni = (out_new - out_uni).abs()
+    max_diff_uni = diff_uni.max().item()
     print(f"  UNIVERSAL SNN output mean: {out_uni.mean():.6f}")
-    print(f"  New vs UNIVERSAL max diff: {diff_uni.max().item():.8f}")
+    print(f"  New vs UNIVERSAL max diff: {max_diff_uni:.8f}")
 
-    if diff_uni.max().item() < 1e-6:
-        print("  PASS: UNIVERSAL rules match new resnet20 rules exactly!")
-    else:
-        print("  WARN: UNIVERSAL differs from explicit resnet20 rules")
-
-    # Print model structures for comparison
-    print("\n--- Old SNN model structure (top-level) ---")
-    for name, module in wrapper_old.model.named_children():
-        print(f"  {name}: {type(module).__name__}")
-    print("\n--- New SNN model structure (top-level) ---")
-    for name, module in wrapper_new.model.named_children():
-        print(f"  {name}: {type(module).__name__}")
-
-    return max_diff < 1e-2
-
-
-def test_existing_tests():
-    """Run existing test_verify.py to make sure nothing else broke."""
-    print("\n" + "=" * 60)
-    print("Running existing tests/test_verify.py...")
-    print("=" * 60)
-    import subprocess
-    result = subprocess.run(
-        [sys.executable, "tests/test_verify.py"],
-        capture_output=True, text=True, timeout=120,
+    assert max_diff_uni < 1e-6, (
+        f"UNIVERSAL rules diverged from explicit resnet20 rules: max_diff={max_diff_uni:.8f}"
     )
-    print(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
-    if result.returncode != 0:
-        print("STDERR:", result.stderr[-1000:])
-    return result.returncode == 0
+
+    print("  PASS: All conversion equivalence checks passed.")
 
 
 if __name__ == "__main__":
@@ -201,13 +174,6 @@ if __name__ == "__main__":
     print("ResNet20 Conversion Equivalence Test")
     print("=" * 60)
 
-    ok1 = test_old_vs_new()
+    test_old_vs_new()
 
-    ok2 = test_existing_tests()
-
-    print("\n" + "=" * 60)
-    print("SUMMARY")
-    print("=" * 60)
-    print(f"  Old vs New conversion: {'PASS' if ok1 else 'FAIL'}")
-    print(f"  Existing tests:        {'PASS' if ok2 else 'FAIL'}")
-    sys.exit(0 if (ok1 and ok2) else 1)
+    print("\n  ALL TESTS PASSED.")

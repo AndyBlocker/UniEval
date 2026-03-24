@@ -36,7 +36,12 @@ def _match_quanconvfusebn(name, child, parent):
 
 
 def _match_quanlinear(name, child, parent):
-    return isinstance(child, QuanLinear)
+    """Match CNN-specific QuanLinear (with activation quantization).
+
+    Weight-only QuanLinear (ViT/decoder via LSQ) has quan_out_fn=None
+    and should fall through to default leaf rules.
+    """
+    return isinstance(child, QuanLinear) and getattr(child, 'quan_out_fn', None) is not None
 
 
 def _match_quanaddition(name, child, parent):
