@@ -511,13 +511,36 @@ def main() -> None:
     wrapper = wrapper.to(device)
     wrapper.eval()
     
-    # print(wrapper)
-    print("[SNN] 转换完成")    
-    # metrics = evaluateSNN(wrapper, test_loader, device)
-    # print(f"[SNN] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")        
-    
+    print("[SNN] 转换完成")
+    metrics = evaluateSNN(wrapper, test_loader, device)
+    print(f"[SNN] Eval | loss={metrics['loss']:.4f} | acc={metrics['acc']:.4f}")
+
+    # Feasibility check
+    from unieval.evaluation.feasibility.check_hooker import Feasibility_checker, results_to_table
+
+    x_global = torch.randn(2, 3, 32, 32).to(device)
+    print("[SNN] 可行性评估")
+    feas_results = Feasibility_checker(
+        wrapper,
+        temporal_size=1,
+        spatial_dimension=1,
+        x_global=x_global,
+        model_name="resnet20",
+        verbose=False,
+        ignore_error_modules=True,
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    results_to_table(
+        feas_results,
+        include_skipped=True,
+        exclude_skipped_reasons=["cannot infer or capture input"],
+        csv_path=os.path.join(args.out_dir, "feasibility.csv"),
+    )
+
+    # Energy evaluation
     from unieval.evaluation import evaluate_energy
-    print("[SNN] 能耗评估")    
+    print("[SNN] 能耗评估")
     result = evaluate_energy(
         wrapper, test_loader,
         profile="resnet20", time_step=args.time_step, num_batches=10,
@@ -528,7 +551,29 @@ def main() -> None:
     print(format_details_layers_table(details, topk=80))
     print("\n[Details] raw dict (filtered zero-ops)")
     print(details)
-    
+
+    # Hardware simulator
+    print("[SNN] 硬件仿真器结果")
+    from unieval.evaluation import simulater_fast_evaluate
+    import yaml
+    hw_config_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "configs", "hardware_param.yaml"
+    )
+    if os.path.exists(hw_config_path):
+        hw_config = yaml.safe_load(open(hw_config_path, 'r'))
+        sim_result = simulater_fast_evaluate(
+            wrapper, test_loader,
+            profile="resnet20", time_step=args.time_step, num_batches=10,
+            hardware_config=hw_config,
+        )
+        energy = sim_result['total_energy']
+        area = sim_result['total_area']
+        latency = sim_result['total_latency']
+        print(f"energy:{energy} mJ, area:{area} mm^2, latency:{latency} ms")
+    else:
+        print(f"[WARN] hardware_param.yaml not found at {hw_config_path}, skipping simulator")
+
+
 if __name__ == "__main__":
     main()
 

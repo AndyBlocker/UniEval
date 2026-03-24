@@ -1,0 +1,65 @@
+# SNN Hardware Accelerator Analytical Model Configuration
+
+system_config:
+  N_core: 4       # [N_core] 神经元核的个数 (Number of cores)
+  C_topo: 4       # [C_topo] NoC的拓扑结构确定的系数，例如Ring network时为 N_core
+  clock_frequency: 200000000 # 局部时钟的频率
+
+hardware_modules:
+  buffer:
+    latency:
+      L_buffer: 1.0     # [L_buffer] Buffer 的单次访问延迟
+    energy:
+      e_buffer: 1.2     # [e_buffer] Buffer 的单次访问能耗 pJ
+    area:
+      A_SRAM: 5.0       # [A_SRAM] 单位 SRAM 的面积 um^2
+      B_SRAM: 1024        # [B_SRAM] SRAM 的大小，能够装多少bit的数据
+      # --- 片上存储规格参数 ---
+      B_weight: 4       # [B_weight] 权重参数位宽
+      B_mem: 12         # [B_mem] 膜电位等状态存储位宽
+      B_tracer: 4      # [B_tracer] Tracer 存储位宽
+
+  pe:
+    compute:
+      W_PE: 16          # [W_PE] PE 的计算宽度
+    latency:
+      L_PE: 2.0         # [L_PE] PE 单次计算延迟
+    energy:
+      e_pe: 1.5         # [e_pe] PE 单次计算能耗 pJ
+    area:
+      A_PE: 20.0        # [A_PE] 单个 PE 模块的面积
+
+  neuron:
+    latency:
+      L_neuron: 1.0     # [L_neuron] 神经元单次更新延迟, cycle
+    energy:
+      e_neuron: 1.0     # [e_neuron] 神经元单次更新能耗
+    area:
+      A_neuron: 10.0    # [A_neuron] 单个 Neuron 模块的面积
+
+  router:
+    latency:
+      L_router: 1.0     # [L_router] 路由单次转发的延迟
+    energy:
+      e_router: 0.8     # [e_router] 路由单次转发的能耗
+    area:
+      A_router: 15.0    # [A_router] 单个 Router 模块的面积
+
+  noc:
+    bandwidth:
+      W_NOC: 32         # [W_NOC] NoC 的带宽
+    packet:
+      B_AER: 16         # [B_AER] Spike (AER包) 传输位宽
+    energy:
+      e_wire: 0.2       # [e_wire] 线缆/链路单位跳数 (hop) 传输能耗
+    area:
+      A_wire: 2.0       # [A_wire] 线缆/链路单位面积
+
+# ---------------------------------------------------------
+# 以下为模型计算时需要的动态负载（Workload）参数示例
+# ---------------------------------------------------------
+workload_profile:
+  num_sop: 50000        # [#SOP] 突触操作总数 (Synaptic Operations)
+  num_spike: 1500       # [#Spike] 脉冲总数
+  fan_out: 10           # [F_out] 脉冲的平均扇出数量
+  num_hop: 2            # [N_hop] 脉冲在NoC传输时的平均跳数

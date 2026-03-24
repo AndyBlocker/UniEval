@@ -155,6 +155,7 @@ class SNNWrapper(nn.Module):
 
         # Initialize Judger (after conversion, so all SNN ops exist)
         self.finish_judger = Judger(self.model)
+        self.no_reset = False
 
     def _init_adapter_by_name(self, adapter_name):
         """Initialize adapter by explicit name (backward compat path)."""
@@ -271,7 +272,8 @@ class SNNWrapper(nn.Module):
         Returns:
             (accu, actual_T) or (accu, actual_T, accu_per_timestep) if verbose.
         """
-        self.reset()
+        if not self.no_reset:
+            self.reset()
 
         # Pre-process input via adapter (e.g. token IDs -> embeddings for decoder)
         x = self.adapter.prepare_input(self.model, x)
@@ -349,6 +351,13 @@ class SNNWrapper(nn.Module):
             return accu, count, accu_per_timestep
         else:
             return accu, count
+
+    def forward_to_teq(self, x, verbose=False):
+        """Run auto inference without reset, for feasibility checkers."""
+        self.no_reset = True
+        output = self.run_auto(x, verbose=verbose)[0]
+        self.no_reset = False
+        return output
 
     def forward(self, x, verbose=False):
         """Legacy API: equivalent to run_auto with auto-reset."""
