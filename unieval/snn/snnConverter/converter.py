@@ -5,7 +5,7 @@ from typing import List, Optional
 
 import torch.nn as nn
 
-from .rules import ConversionRule, DEFAULT_CONVERSION_RULES
+from .rules import ConversionRule
 
 # Leaf module types that are expected to have no conversion rule.
 _CONVERT_SKIP_WARN_TYPES = (
@@ -16,6 +16,23 @@ _CONVERT_SKIP_WARN_TYPES = (
 )
 
 
+class ConversionContext:
+    """Mutable state for a single convert() call.
+
+    Provides named counters for layer numbering, replacing global variables.
+    A fresh context is created per convert() invocation, ensuring reentrancy.
+    """
+
+    def __init__(self):
+        self.counters = {}
+
+    def next_index(self, prefix="layer"):
+        """Return the next index for *prefix* and increment the counter."""
+        count = self.counters.get(prefix, 0)
+        self.counters[prefix] = count + 1
+        return count
+
+
 class SNNConverter:
     """Rule-based recursive model converter from ANN/QANN to SNN.
 
@@ -23,12 +40,16 @@ class SNNConverter:
     First matching rule wins for each module.
 
     Args:
-        rules: List of ConversionRule instances. Defaults to DEFAULT_CONVERSION_RULES.
+        rules: List of ConversionRule instances.
+            Defaults to UNIVERSAL_CONVERSION_RULES (all registered rules).
     """
 
     def __init__(self, rules: Optional[List[ConversionRule]] = None):
+        if rules is None:
+            from .rules import UNIVERSAL_CONVERSION_RULES
+            rules = UNIVERSAL_CONVERSION_RULES
         self.rules = sorted(
-            rules or DEFAULT_CONVERSION_RULES,
+            rules,
             key=lambda r: r.priority,
             reverse=True,
         )
@@ -43,7 +64,8 @@ class SNNConverter:
         Returns:
             The converted model (same object, modified in-place).
         """
-        self._convert_recursive(model, **kwargs)
+        ctx = ConversionContext()
+        self._convert_recursive(model, ctx=ctx, **kwargs)
         self._warn_surviving_quantizers(model)
         return model
 

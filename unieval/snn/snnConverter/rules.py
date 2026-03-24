@@ -1,4 +1,24 @@
-"""Conversion rules for ANN-to-SNN conversion."""
+"""Conversion rules for ANN-to-SNN conversion.
+
+Rule paradigms:
+
+Type A — Block-level: match a structural container (BasicBlock, Attention, MLP)
+    and replace it entirely with a SpikeXxx class.  The converter does NOT
+    recurse into matched modules; the convert_fn handles everything.
+
+Type B — Leaf-level (fallback): match individual modules (Conv2d, Linear,
+    LayerNorm, ReLU) and replace them 1:1.  Used for modules that are not
+    inside any matched block.
+
+Priority guide:
+    100     Block-level containers (BasicBlock, Attention)
+     95     Composite modules (SwiGLU, ReGLU, fused Conv+BN)
+     90     Typed quantization wrappers (AdditionQuan, QuanAvgPool)
+     80     Generic quantizers (MyQuan, PTQQuan → IFNeuron)
+   50-55    Atomic fallback (Conv2d, Linear, QConv2d, QLinear)
+   40-45    Norm layers (LayerNorm, QNorm)
+     30     Simple replacements (ReLU → Identity)
+"""
 
 from dataclasses import dataclass, field
 from typing import Callable
@@ -186,3 +206,22 @@ DEFAULT_CONVERSION_RULES = [
     ConversionRule("layernorm_to_spiking", _match_layernorm, _convert_layernorm, priority=40),
     ConversionRule("relu_to_identity", _match_relu, _convert_relu, priority=30),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Universal rule set (all models merged)
+# ---------------------------------------------------------------------------
+# Imports are placed after DEFAULT_CONVERSION_RULES so that model-specific
+# rule files (which import ConversionRule / DEFAULT_CONVERSION_RULES from
+# this module) can resolve their dependencies without circular-import issues.
+
+from .resnet20_rules import RESNET20_CONVERSION_RULES
+from .uniaffine_rules import UNIAFFINE_CONVERSION_RULES
+from .qwen3_rules import QWEN3_CONVERSION_RULES
+
+UNIVERSAL_CONVERSION_RULES = (
+    RESNET20_CONVERSION_RULES
+    + UNIAFFINE_CONVERSION_RULES
+    + QWEN3_CONVERSION_RULES
+    + DEFAULT_CONVERSION_RULES
+)
