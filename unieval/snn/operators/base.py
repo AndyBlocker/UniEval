@@ -85,7 +85,9 @@ class CompositeSNNModule(nn.Module, SNNOperator):
     Provides:
     - participates_in_early_stop = False (children are checked instead)
     - Automatic reset(): calls reset_local_state() then resets direct children.
-      Uses children() (not modules()) to avoid double-resetting nested composites.
+      Uses children() to avoid double-resetting nested CompositeSNNModules,
+      but recurses into non-SNNOperator containers (nn.Sequential, etc.)
+      to reach SNN operators wrapped inside them.
 
     Subclasses should override reset_local_state() to clear their own state
     (e.g. gate_acc, T counter). Do NOT clear child state there — that is
@@ -96,9 +98,7 @@ class CompositeSNNModule(nn.Module, SNNOperator):
 
     def reset(self):
         self.reset_local_state()
-        for child in self.children():
-            if isinstance(child, SNNOperator):
-                child.reset()
+        _reset_snn_children(self)
 
     def reset_local_state(self):
         """Override to reset module-local state (gate_acc, T, etc.).
@@ -107,3 +107,19 @@ class CompositeSNNModule(nn.Module, SNNOperator):
         buffers, not depend on or modify child state.
         """
         pass
+
+
+def _reset_snn_children(module):
+    """Reset all SNNOperator children, recursing through non-SNN containers.
+
+    For SNNOperator children: calls reset() and stops (the child handles
+    its own subtree).  For non-SNNOperator children (nn.Sequential, etc.):
+    recurses to find SNN operators inside.  This avoids the double-reset
+    problem of modules() while still reaching operators wrapped in plain
+    containers.
+    """
+    for child in module.children():
+        if isinstance(child, SNNOperator):
+            child.reset()
+        else:
+            _reset_snn_children(child)

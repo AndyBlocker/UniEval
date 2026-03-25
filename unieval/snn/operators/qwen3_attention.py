@@ -42,4 +42,10 @@ class SQwen3Attention(DecoderSpikingAttentionBase):
             level=level,
         )
         self.scale = self.head_dim ** -0.5
-        self.score_act = spiking_softmax()
+        # registered under original name for consistency (no state_dict impact)
+        self.Ssoftmax = spiking_softmax()
+
+    @property
+    def score_act(self):
+        """Alias for base class forward()."""
+        return self.Ssoftmax

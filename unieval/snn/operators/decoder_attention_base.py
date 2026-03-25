@@ -1,8 +1,8 @@
 """Base class for decoder spiking attention with GQA and RoPE.
 
 Extracts the common forward logic shared by SQwen3Attention and
-SpikeUniAffineAttention.  Subclasses only need to set self.scale
-and register self.score_act (the score activation module).
+SpikeUniAffineAttention.  Subclasses provide self.scale and
+self.score_act (as attribute or property).
 
 SAttention (ViT) is intentionally NOT covered here -- its structure
 differs too much (cls_token, no GQA, no RoPE, dropout paths).
@@ -25,9 +25,9 @@ class DecoderSpikingAttentionBase(CompositeSNNModule):
         -> temporal Q*K^T (multi) -> score_act -> attn_IF
         -> temporal Attn*V (multi1) -> after_attn_IF -> o_proj -> proj_IF
 
-    Subclasses must, in their __init__ (after calling super()):
-        1. Set self.scale (float or Tensor)
-        2. Register self.score_act as an nn.Module with forward(input, mask=None)
+    Subclasses must provide (via attribute or property):
+        1. self.scale — float or Tensor (use property for buffer-backed scales)
+        2. self.score_act — nn.Module with forward(input, mask=None)
 
     Args:
         hidden_size: Model hidden dimension.
@@ -70,7 +70,7 @@ class DecoderSpikingAttentionBase(CompositeSNNModule):
         self.proj_IF = neuron_layer(q_threshold=torch.tensor(1.0), level=level, sym=True)
 
         self.T = 0
-        # Subclass must set: self.scale, self.score_act
+        # Subclass must provide: self.scale, self.score_act (attribute or property)
 
     def reset_local_state(self):
         self.T = 0

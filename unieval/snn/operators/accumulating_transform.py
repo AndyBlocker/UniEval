@@ -50,6 +50,10 @@ class AccumulatingTransform(nn.Module, SNNOperator):
 
     def _apply_transform(self, x):
         if self._transform_attr is not None:
+            if self._transform_fn is not None:
+                raise TypeError(
+                    f"{type(self).__name__}: set _transform_attr or _transform_fn, not both"
+                )
             return getattr(self, self._transform_attr)(x)
         if self._transform_fn is not None:
             return self._transform_fn(x)

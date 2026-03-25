@@ -100,5 +100,15 @@ class SpikeUniAffineAttention(DecoderSpikingAttentionBase):
             level=level,
         )
         self.core = core
-        self.scale = core.scale
-        self.score_act = Spiking_UniAffineAct(core)
+        # score activation registered under original name for state_dict compat
+        self.s_uniaffine = Spiking_UniAffineAct(core)
+
+    @property
+    def scale(self):
+        """Read from core.scale at forward time (buffer moves with .to(device))."""
+        return self.core.scale
+
+    @property
+    def score_act(self):
+        """Alias for base class forward() — preserves s_uniaffine state_dict keys."""
+        return self.s_uniaffine
