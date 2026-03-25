@@ -78,7 +78,6 @@ class DecoderSpikingAttentionBase(CompositeSNNModule):
     def forward(self, x, causal_mask=None):
         B, S, _ = x.shape
 
-        # QKV split from fused projection
         qkv = self.qkv_proj(x)
         q_dim = self.num_heads * self.head_dim
         kv_dim = self.num_kv_heads * self.head_dim
@@ -90,36 +89,28 @@ class DecoderSpikingAttentionBase(CompositeSNNModule):
         k = self.k_IF(k)
         v = self.v_IF(v)
 
-        # GQA expand
         if self.num_kv_groups > 1:
             k = k.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
             v = v.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
 
-        # RoPE on accumulated Q, K
         q_acc = self.q_IF.acc_q * self.q_IF.q_threshold
         k_acc = self.k_IF.acc_q * self.k_IF.q_threshold
         if self.num_kv_groups > 1:
             k_acc = k_acc.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
 
         cos, sin = self.rope(q, seq_len=S)
-        q_rot, _ = apply_rotary_pos_emb(q, k, cos, sin)
-        _, k_rot = apply_rotary_pos_emb(q, k, cos, sin)
+        q_rot, k_rot = apply_rotary_pos_emb(q, k, cos, sin)
         q_acc_rot, k_acc_rot = apply_rotary_pos_emb(q_acc, k_acc, cos, sin)
 
-        # Temporal Q*K^T
         attn_diff = multi(
             q_rot * self.scale, k_rot,
             (q_acc_rot * self.scale).float(),
             k_acc_rot.float(),
         )
 
-        # Score activation (softmax or UniAffine, set by subclass)
         attn = self.score_act(attn_diff, mask=causal_mask)
-
-        # IF on attention output
         attn = self.attn_IF(attn)
 
-        # Temporal Attn*V
         v_acc = self.v_IF.acc_q * self.v_IF.q_threshold
         if self.num_kv_groups > 1:
             v_acc = v_acc.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
