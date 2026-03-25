@@ -14,8 +14,8 @@ def convert(qann_model, time_step=64, level=16, encoding_type="analog",
         neuron_type: 神经元类型 (如 "ST-BIF")。
         is_softmax: attention 是否使用 softmax。
         conversion_rules: 转换规则列表 (List[ConversionRule])。
-            None 使用 DEFAULT_CONVERSION_RULES。Decoder 模型需传入对应规则，
-            如 QWEN3_CONVERSION_RULES + DEFAULT_CONVERSION_RULES。
+            None 使用 UNIVERSAL_CONVERSION_RULES（包含所有模型的规则，
+            按优先级自动匹配，无需手动选择）。
         converter: 自定义 SNNConverter 实例（优先于 conversion_rules）。
         adapter_name: 执行适配器名称（None 则自动检测）。
 

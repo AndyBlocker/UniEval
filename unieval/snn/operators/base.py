@@ -1,6 +1,7 @@
 """SNNOperator mixin interface for all SNN operator modules."""
 
 import torch
+import torch.nn as nn
 
 
 class SNNOperator:
@@ -59,3 +60,66 @@ class SNNOperator:
             output_seq: [T, B, ...] tensor of temporal outputs.
         """
         return torch.stack([self(x_seq[t]) for t in range(x_seq.shape[0])])
+
+    def forward_to_teq(self, input):
+        """Run forward until temporal output drains to zero, return accumulated output.
+
+        Used by feasibility checkers (LoCC, async) to get the time-equivalent
+        response of a stateful SNN operator.
+        """
+        out = 0.0
+        count = 0
+        zeros = torch.zeros_like(input)
+        while True:
+            out_t = self.forward(input if count == 0 else zeros)
+            if out_t.abs().sum() == 0:
+                break
+            out = out + out_t
+            count += 1
+        return out
+
+
+class CompositeSNNModule(nn.Module, SNNOperator):
+    """Base class for container SNN modules (blocks, composites).
+
+    Provides:
+    - participates_in_early_stop = False (children are checked instead)
+    - Automatic reset(): calls reset_local_state() then resets direct children.
+      Uses children() to avoid double-resetting nested CompositeSNNModules,
+      but recurses into non-SNNOperator containers (nn.Sequential, etc.)
+      to reach SNN operators wrapped inside them.
+
+    Subclasses should override reset_local_state() to clear their own state
+    (e.g. gate_acc, T counter). Do NOT clear child state there — that is
+    handled automatically.
+    """
+
+    participates_in_early_stop = False
+
+    def reset(self):
+        self.reset_local_state()
+        _reset_snn_children(self)
+
+    def reset_local_state(self):
+        """Override to reset module-local state (gate_acc, T, etc.).
+
+        This is called BEFORE children are reset. Should only clear local
+        buffers, not depend on or modify child state.
+        """
+        pass
+
+
+def _reset_snn_children(module):
+    """Reset all SNNOperator children, recursing through non-SNN containers.
+
+    For SNNOperator children: calls reset() and stops (the child handles
+    its own subtree).  For non-SNNOperator children (nn.Sequential, etc.):
+    recurses to find SNN operators inside.  This avoids the double-reset
+    problem of modules() while still reaching operators wrapped in plain
+    containers.
+    """
+    for child in module.children():
+        if isinstance(child, SNNOperator):
+            child.reset()
+        else:
+            _reset_snn_children(child)

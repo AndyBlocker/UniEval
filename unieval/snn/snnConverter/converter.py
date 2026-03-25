@@ -1,11 +1,11 @@
 """SNNConverter: rule-driven recursive ANN-to-SNN conversion engine."""
 
 import warnings
-from typing import List, Optional
+from typing import Callable, Dict, List, Optional, Type
 
 import torch.nn as nn
 
-from .rules import ConversionRule, DEFAULT_CONVERSION_RULES
+from .rules import ConversionRule
 
 # Leaf module types that are expected to have no conversion rule.
 _CONVERT_SKIP_WARN_TYPES = (
@@ -15,6 +15,59 @@ _CONVERT_SKIP_WARN_TYPES = (
     nn.Flatten, nn.Softmax, nn.Tanh, nn.Sigmoid,
 )
 
+# ---------------------------------------------------------------------------
+# Typed dispatch: exact-type registry for QANN -> SNN conversion
+# ---------------------------------------------------------------------------
+# O(1) lookup by type(child).  Checked before ConversionRule iteration.
+# Use @snn_convertible(QANNType) to register.
+
+_TYPED_CONVERTERS: Dict[Type[nn.Module], Callable] = {}
+
+
+def snn_convertible(qann_type: Type[nn.Module]):
+    """Decorator: register a QANN type -> SNN conversion function.
+
+    The decorated function must have the same signature as a ConversionRule
+    convert_fn: ``(name, child, parent, **kwargs) -> None``.
+
+    Typed dispatch is checked before rule-based matching in SNNConverter.
+    It uses exact type matching (not isinstance), so subclasses are not
+    caught unless explicitly registered.
+
+    Example::
+
+        @snn_convertible(QQwen3Attention)
+        def _convert_qwen3_attn(name, child, parent, level, neuron_type, **kw):
+            ...
+    """
+    def decorator(fn: Callable) -> Callable:
+        if qann_type in _TYPED_CONVERTERS:
+            warnings.warn(
+                f"snn_convertible: overwriting existing converter for "
+                f"{qann_type.__name__}",
+                stacklevel=2,
+            )
+        _TYPED_CONVERTERS[qann_type] = fn
+        return fn
+    return decorator
+
+
+class ConversionContext:
+    """Mutable state for a single convert() call.
+
+    Provides named counters for layer numbering, replacing global variables.
+    A fresh context is created per convert() invocation, ensuring reentrancy.
+    """
+
+    def __init__(self):
+        self.counters = {}
+
+    def next_index(self, prefix="layer"):
+        """Return the next index for *prefix* and increment the counter."""
+        count = self.counters.get(prefix, 0)
+        self.counters[prefix] = count + 1
+        return count
+
 
 class SNNConverter:
     """Rule-based recursive model converter from ANN/QANN to SNN.
@@ -23,12 +76,16 @@ class SNNConverter:
     First matching rule wins for each module.
 
     Args:
-        rules: List of ConversionRule instances. Defaults to DEFAULT_CONVERSION_RULES.
+        rules: List of ConversionRule instances.
+            Defaults to UNIVERSAL_CONVERSION_RULES (all registered rules).
     """
 
     def __init__(self, rules: Optional[List[ConversionRule]] = None):
+        if rules is None:
+            from .rules import UNIVERSAL_CONVERSION_RULES
+            rules = UNIVERSAL_CONVERSION_RULES
         self.rules = sorted(
-            rules or DEFAULT_CONVERSION_RULES,
+            rules,
             key=lambda r: r.priority,
             reverse=True,
         )
@@ -43,13 +100,21 @@ class SNNConverter:
         Returns:
             The converted model (same object, modified in-place).
         """
-        self._convert_recursive(model, **kwargs)
+        ctx = ConversionContext()
+        self._convert_recursive(model, ctx=ctx, **kwargs)
         self._warn_surviving_quantizers(model)
         return model
 
     def _convert_recursive(self, model: nn.Module, **kwargs):
         children = list(model.named_children())
         for name, child in children:
+            # Fast path: typed dispatch (exact type match, O(1))
+            converter_fn = _TYPED_CONVERTERS.get(type(child))
+            if converter_fn is not None:
+                converter_fn(name, child, model, **kwargs)
+                continue
+
+            # Slow path: rule-based matching (priority order)
             matched = False
             for rule in self.rules:
                 if rule.match_fn(name, child, model):

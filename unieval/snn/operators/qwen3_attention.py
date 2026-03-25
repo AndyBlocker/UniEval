@@ -1,25 +1,16 @@
 """Spiking Qwen3 Attention with GQA and softmax.
 
-Standard spiking softmax attention adapted for decoder models:
-- GQA (Grouped Query Attention)
-- RoPE applied to accumulated Q,K
-- spiking_softmax for temporal softmax approximation
+Thin subclass of DecoderSpikingAttentionBase that uses spiking_softmax
+as the score activation.
 """
 
-import torch
-import torch.nn as nn
-
-from .base import SNNOperator
-from .neurons import STBIFNeuron, _sequential_multistep
-from .attention import spiking_softmax, multi, multi1
-from ...ann.operators.rope import apply_rotary_pos_emb
+from .neurons import STBIFNeuron
+from .attention import spiking_softmax
+from .decoder_attention_base import DecoderSpikingAttentionBase
 
 
-class SQwen3Attention(nn.Module, SNNOperator):
+class SQwen3Attention(DecoderSpikingAttentionBase):
     """Spiking Qwen3 Attention with softmax, GQA, and RoPE.
-
-    Uses the existing spiking_softmax module for temporal softmax
-    and multi/multi1 for temporal matmul decomposition.
 
     Args:
         hidden_size: Model hidden dimension.
@@ -31,8 +22,6 @@ class SQwen3Attention(nn.Module, SNNOperator):
         level: Quantization level.
     """
 
-    participates_in_early_stop = False
-
     def __init__(
         self,
         hidden_size,
@@ -43,112 +32,20 @@ class SQwen3Attention(nn.Module, SNNOperator):
         neuron_layer=STBIFNeuron,
         level=2,
     ):
-        super().__init__()
-        self.num_heads = num_heads
-        self.num_kv_heads = num_kv_heads
-        self.head_dim = head_dim
-        self.scale = head_dim ** -0.5
-        self.num_kv_groups = num_heads // num_kv_heads
-        self.rope = rope
-
-        q_dim = num_heads * head_dim
-        kv_dim = num_kv_heads * head_dim
-        self.qkv_proj = nn.Linear(hidden_size, q_dim + 2 * kv_dim, bias=False)
-
-        self.q_IF = neuron_layer(q_threshold=torch.tensor(1.0), level=level, sym=True)
-        self.k_IF = neuron_layer(q_threshold=torch.tensor(1.0), level=level, sym=True)
-        self.v_IF = neuron_layer(q_threshold=torch.tensor(1.0), level=level, sym=True)
-        self.attn_IF = neuron_layer(q_threshold=torch.tensor(1.0), level=level, sym=False)
-        self.after_attn_IF = neuron_layer(q_threshold=torch.tensor(1.0), level=level, sym=True)
-
-        self.o_proj = nn.Linear(q_dim, hidden_size, bias=False)
-        self.proj_IF = neuron_layer(q_threshold=torch.tensor(1.0), level=level, sym=True)
-
+        super().__init__(
+            hidden_size=hidden_size,
+            num_heads=num_heads,
+            num_kv_heads=num_kv_heads,
+            head_dim=head_dim,
+            rope=rope,
+            neuron_layer=neuron_layer,
+            level=level,
+        )
+        self.scale = self.head_dim ** -0.5
+        # registered under original name for consistency (no state_dict impact)
         self.Ssoftmax = spiking_softmax()
-        self.T = 0
 
-    def reset(self):
-        self.q_IF.reset()
-        self.k_IF.reset()
-        self.v_IF.reset()
-        self.attn_IF.reset()
-        self.after_attn_IF.reset()
-        self.proj_IF.reset()
-        self.Ssoftmax.reset()
-        if hasattr(self.qkv_proj, "reset"):
-            self.qkv_proj.reset()
-        if hasattr(self.o_proj, "reset"):
-            self.o_proj.reset()
-        self.T = 0
-
-    def forward(self, x, causal_mask=None):
-        B, S, _ = x.shape
-        qkv = self.qkv_proj(x)
-        q_dim = self.num_heads * self.head_dim
-        kv_dim = self.num_kv_heads * self.head_dim
-
-        q = qkv[..., :q_dim].reshape(B, S, self.num_heads, self.head_dim).transpose(1, 2)
-        k = qkv[..., q_dim:q_dim + kv_dim].reshape(B, S, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        v = qkv[..., q_dim + kv_dim:].reshape(B, S, self.num_kv_heads, self.head_dim).transpose(1, 2)
-
-        q = self.q_IF(q)
-        k = self.k_IF(k)
-        v = self.v_IF(v)
-
-        # GQA expand
-        if self.num_kv_groups > 1:
-            k = k.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
-            v = v.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
-
-        # RoPE on accumulated Q, K
-        q_acc = self.q_IF.acc_q * self.q_IF.q_threshold
-        k_acc = self.k_IF.acc_q * self.k_IF.q_threshold
-        if self.num_kv_groups > 1:
-            k_acc = k_acc.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
-
-        cos, sin = self.rope(q, seq_len=S)
-        q_rot, _ = apply_rotary_pos_emb(q, k, cos, sin)
-        _, k_rot = apply_rotary_pos_emb(q, k, cos, sin)
-        q_acc_rot, k_acc_rot = apply_rotary_pos_emb(q_acc, k_acc, cos, sin)
-
-        # Temporal Q*K^T with scaling
-        attn_diff = multi(
-            q_rot * self.scale, k_rot,
-            (q_acc_rot * self.scale).float(),
-            k_acc_rot.float(),
-        )
-
-        # Spiking softmax (causal_mask applied inside, not accumulated)
-        attn = self.Ssoftmax(attn_diff, mask=causal_mask)
-
-        # IF on attention output
-        attn = self.attn_IF(attn)
-
-        # Temporal Attn*V
-        v_acc = self.v_IF.acc_q * self.v_IF.q_threshold
-        if self.num_kv_groups > 1:
-            v_acc = v_acc.unsqueeze(2).expand(-1, -1, self.num_kv_groups, -1, -1).reshape(B, self.num_heads, S, self.head_dim)
-
-        x = multi1(
-            attn, v,
-            (self.attn_IF.acc_q * self.attn_IF.q_threshold).float(),
-            v_acc.float(),
-        )
-
-        x = self.after_attn_IF(x)
-        x = x.transpose(1, 2).reshape(B, S, -1)
-        x = self.o_proj(x)
-        x = self.proj_IF(x)
-
-        self.T += 1
-        return x
-
-    def forward_multistep(self, x_seq, causal_mask=None):
-        """Sequential multi-step."""
-        T = x_seq.shape[0]
-        out0 = self.forward(x_seq[0], causal_mask=causal_mask)
-        result = torch.empty(T, *out0.shape, device=out0.device, dtype=out0.dtype)
-        result[0] = out0
-        for t in range(1, T):
-            result[t] = self.forward(x_seq[t], causal_mask=causal_mask)
-        return result
+    @property
+    def score_act(self):
+        """Alias for base class forward()."""
+        return self.Ssoftmax

@@ -4,7 +4,9 @@ import torch
 import torch.nn as nn
 
 from .base import BaseQuantizer, QuantPlacementRule
-from ..operators.lsq import MyQuan, QAttention, QuanConv2d, QuanLinear
+from ..operators.lsq import MyQuan, QAttention, QuanConv2d
+from ..operators.quanConv2d import QuanConv2dFuseBN
+from ..operators.quanLinear import QuanLinear
 from ..operators.ptq import PTQQuan
 from ..operators.composites import QConv2d as QCompConv2d, QLinear as QCompLinear, QNorm
 from ...registry import QUANTIZER_REGISTRY

@@ -4,8 +4,15 @@ import math
 
 import torch
 import torch.nn as nn
+import torch as t
 
 from .base import SNNOperator
+from .accumulating_transform import AccumulatingTransform
+from .neurons import STBIFNeuron
+from unieval.qann.operators import QuanConv2dFuseBN, QuanLinear, QuanAvgPool, AdditionQuan
+from unieval.qann.quantization import LsqQuan, LsqQuanAct
+
+
 
 
 class LLConv2d(nn.Module, SNNOperator):
@@ -177,54 +184,17 @@ class LLLinear(nn.Module, SNNOperator):
         return result
 
 
-class Spiking_LayerNorm(nn.Module, SNNOperator):
+class Spiking_LayerNorm(AccumulatingTransform):
     """Spiking LayerNorm: accumulates input, outputs differential normalized values.
 
     Args:
         dim: Normalized shape dimension.
     """
 
-    participates_in_early_stop = False
-
     def __init__(self, dim):
         super().__init__()
         self.layernorm = nn.LayerNorm(dim)
-        self.X = 0.0
-        self.Y_pre = None
-
-    def reset(self):
-        self.X = 0.0
-        self.Y_pre = None
-
-    def forward(self, input):
-        self.X = self.X + input
-        Y = self.layernorm(self.X)
-        if self.Y_pre is not None:
-            Y_pre = self.Y_pre.detach().clone()
-        else:
-            Y_pre = 0.0
-        self.Y_pre = Y
-        return Y - Y_pre
-
-    def forward_multistep(self, x_seq):
-        """Vectorized multi-step: cumsum + layernorm + diff.
-
-        Args:
-            x_seq: [T, B, N, D]
-        Returns:
-            output: [T, B, N, D]
-        """
-        X_cum = x_seq.cumsum(dim=0) + self.X
-        Y = self.layernorm(X_cum)
-        if self.Y_pre is not None:
-            Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
-        else:
-            Y_prev = torch.zeros_like(Y[:1])
-        Y_shifted = torch.cat([Y_prev, Y[:-1]], dim=0)
-        output = Y - Y_shifted
-        self.X = X_cum[-1]
-        self.Y_pre = Y[-1]
-        return output
+        self._transform_attr = "layernorm"
 
 
 class SpikeMaxPooling(nn.Module, SNNOperator):
@@ -281,3 +251,211 @@ class SpikeMaxPooling(nn.Module, SNNOperator):
         output = pooled - pooled_shifted
         self.accumulation = accu[-1]
         return output
+
+
+def reshape_to_activation(inputs):
+    return inputs.reshape(1, -1, 1, 1)
+
+def reshape_to_weight(inputs):
+    return inputs.reshape(-1, 1, 1, 1)
+
+def reshape_to_bias(inputs):
+    return inputs.reshape(-1)
+
+class SpikeConv2dFuseBN(t.nn.Conv2d, SNNOperator):
+    def __init__(self, m: QuanConv2dFuseBN, relu = True, name=f"act", T = 32):
+        assert type(m) == QuanConv2dFuseBN
+        super().__init__(m.in_channels, m.out_channels, m.kernel_size,
+                    stride=m.stride,
+                    padding=m.padding,
+                    dilation=m.dilation,
+                    groups=m.groups,
+                    bias=True if m.bias is not None else False,
+                    padding_mode=m.padding_mode)
+
+        self.m = m
+        self.name = name
+        self.is_work = False
+        self.is_first = self.m.is_first
+        self.thd_neg = m.quan_out_fn.thd_neg
+        self.thd_pos = m.quan_out_fn.thd_pos
+
+        running_std = torch.sqrt(self.m.running_var + self.m.eps)
+        self.weight.data = m.weight.detach().clone()
+        # print(self.weight.mean())
+        weight = self.weight * reshape_to_weight(self.m.gamma / running_std)
+        self.spike = True
+        # print("SpikeConv2dFuseBN bias", m.bias)
+
+        if self.bias is not None:
+            bias = m.bias.to(self.m.gamma.device) * self.m.gamma / running_std + reshape_to_bias(self.m.beta - self.m.gamma * self.m.running_mean / running_std)
+        else:
+            bias = reshape_to_bias(self.m.beta - self.m.gamma * self.m.running_mean / running_std)
+
+        
+        self.weight = nn.Parameter(m.quan_w_fn(weight.detach()), requires_grad = False)
+        self.bias = nn.Parameter(m.quan_out_fn(bias.detach()), requires_grad = False)
+
+
+        self.neuron = STBIFNeuron(q_threshold=self.m.quan_out_fn.s, level=2**self.m.quan_out_fn.bit, sym=self.m.quan_out_fn.symmetric)
+        self.neuron.pos_max = self.m.quan_out_fn.thd_pos
+        if relu:
+            self.neuron.neg_min = self.neuron.neg_min * 0
+        else:
+            self.neuron.neg_min = self.m.quan_out_fn.thd_neg
+        self.neuron.q_threshold = self.m.quan_out_fn.s
+        
+        # if self.is_first:
+        #     self.neuron_first = STBIFNeuron(q_threshold=self.m.quan_a_fn.s, level=2**self.m.quan_a_fn.bit, sym=self.m.quan_a_fn.symmetric)
+        #     self.neuron_first.pos_max = self.m.quan_a_fn.thd_pos
+        #     if relu:
+        #         self.neuron_first.neg_min = self.neuron_first.neg_min * 0
+        #     else:
+        #         self.neuron_first.neg_min = self.m.quan_a_fn.thd_neg
+        #     self.neuron_first.q_threshold = self.m.quan_a_fn.s            
+            
+        self.t = 0
+        self.accu = 0.0
+        self.accu1 = 0.0
+        self.accu2 = 0.0
+    
+    def reset(self):
+        self.t = 0
+        self.is_work = False
+        if hasattr(self, "neuron") and hasattr(self.neuron, "reset"):
+            self.neuron.reset()
+    
+    def forward(self,x):
+        # if self.is_first:
+        #     x = self.neuron_first(x)
+        
+        # self.accu1 = self.accu1 + x
+        # if self.t == 63:
+        #     print("SpikeConv2dFuseBN Input",self.accu1.abs().mean())
+
+        out = self._conv_forward(x, self.weight, bias = None)      
+        # self.accu2 = self.accu2 +  out 
+        # if self.t == 63:
+        #     print("SpikeConv2dFuseBN _conv_forward",self.accu2.abs().mean(), "self.weight", self.weight.abs().mean(),"self.bias",self.bias.abs().mean())
+        # print("SpikeConv2dFuseBN","x",x.abs().mean(), "self.weight", self.weight.abs().mean(),"out",out.abs().mean())
+        if self.t == 0:
+            # print("out.shape",out.shape,"self.bias.shape",self.bias.shape)
+            spike_out = self.neuron(out + self.bias.reshape(1,-1,1,1))
+        else:
+            spike_out = self.neuron(out)
+        # print("SpikeConv2dFuseBN", spike_out)
+
+        self.t = self.t + 1
+        self.is_work = bool(getattr(self.neuron, "is_work", True))
+        # self.accu = self.accu + spike_out
+        # if self.t == 64:
+        #     print("SpikeConv2dFuseBN Output",self.accu.abs().mean())
+        
+        return spike_out
+    
+class SpikeLinear(t.nn.Linear, SNNOperator):
+    def __init__(self, m: QuanLinear, name=f"act", T = 32, directlyOut = False):
+        assert type(m) == QuanLinear
+        super().__init__(m.in_features, m.out_features,
+                         bias=True if m.bias is not None else False)
+        self.m = m
+        self.first = True
+        self.spike = True
+        self.name = name
+        self.is_work = False
+        self.thd_neg = m.quan_out_fn.thd_neg
+        self.thd_pos = m.quan_out_fn.thd_pos
+
+        self.weight = t.nn.Parameter(m.quan_w_fn(m.weight.detach()),requires_grad=False)
+        if m.bias is not None:
+            self.bias = t.nn.Parameter(m.quan_out_fn(m.bias.detach()),requires_grad=False)
+
+        if directlyOut == False:
+            self.neuron = STBIFNeuron(q_threshold=self.m.quan_out_fn.s, level=2**self.m.quan_out_fn.bit, sym=self.m.quan_out_fn.symmetric)
+            self.neuron.pos_max = self.m.quan_out_fn.thd_pos
+            self.neuron.neg_min = self.m.quan_out_fn.thd_neg
+            self.neuron.q_threshold = self.m.quan_out_fn.s
+
+        self.directlyOut = directlyOut
+        self.t = 0
+    
+    def reset(self):
+        self.t = 0
+        self.is_work = False
+        if hasattr(self, "neuron") and hasattr(self.neuron, "reset"):
+            self.neuron.reset()
+
+    def forward(self,x):
+        
+        if self.t == 0:
+            out = t.nn.functional.linear(x, self.weight) + self.bias
+        else:
+            out = t.nn.functional.linear(x, self.weight)
+        if self.directlyOut == False:
+            out = self.neuron(out)
+
+        self.t = self.t + 1
+        self.is_work = bool(getattr(self.neuron, "is_work", True)) if (self.directlyOut == False) else True
+        return out
+
+class SpikeResidualAdd(t.nn.Module, SNNOperator):
+    def __init__(self, m:AdditionQuan, name=f"Residual", T = 32):
+        super(SpikeResidualAdd,self).__init__()
+        self.neuron = STBIFNeuron(m.quan_a_fn.s.data, 2**m.quan_a_fn.bit, sym=m.quan_a_fn.symmetric)
+        self.neuron.q_threshold = m.quan_a_fn.s.data
+        self.neuron.pos_max = m.quan_a_fn.thd_pos
+        self.neuron.neg_min = m.quan_a_fn.thd_neg
+        self.first = True
+        self.spike = True
+        self.name = name
+        self.is_work = False
+        self.accu = 0.0
+        self.accu1 = 0.0
+        self.accu2 = 0.0
+        self.t = 0
+    
+    def reset(self):
+        self.is_work = False
+        if hasattr(self, "neuron") and hasattr(self.neuron, "reset"):
+            self.neuron.reset()
+        self.t = 0
+
+    def forward(self,input1,input2):
+        # self.accu = self.accu + input1
+        # self.accu2 = self.accu2 + input2
+        # if self.t == 63:
+        #     print("SpikeResidualAdd input1:",self.accu.abs().mean(),"input2:",self.accu2.abs().mean())
+        output = self.neuron(input1+input2)
+        self.is_work = bool(getattr(self.neuron, "is_work", True))
+        # self.accu1 = self.accu1 + output
+        # if self.t == 63:
+        #     print("SpikeResidualAdd Output:",self.accu1.abs().mean())
+        self.t = self.t + 1
+        return output
+
+class SpikeInferAvgPool(t.nn.Module, SNNOperator):
+    def __init__(self, m: QuanAvgPool, name=f"AvgPool", T = 32):
+        super(SpikeInferAvgPool,self).__init__()
+        self.m = m
+        self.thd_pos = m.quan_out_fn.thd_pos
+        self.thd_neg = m.quan_out_fn.thd_neg
+        self.neuron = STBIFNeuron(1.0, self.thd_pos - self.thd_neg, self.m.quan_out_fn.symmetric)
+        self.neuron.q_threshold = m.quan_out_fn.s
+        self.neuron.pos_max = m.quan_out_fn.thd_pos
+        self.neuron.neg_min = m.quan_out_fn.thd_neg
+
+        self.first = True 
+        self.spike = True
+        self.name = name
+        self.is_work = False
+
+    def reset(self):
+        self.is_work = False
+        if hasattr(self, "neuron") and hasattr(self.neuron, "reset"):
+            self.neuron.reset()
+
+    def forward(self,x):
+        x = self.m.m(x)
+        y = self.neuron(x)
+        self.is_work = bool(getattr(self.neuron, "is_work", True))
+        return y

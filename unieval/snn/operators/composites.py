@@ -15,19 +15,17 @@ Design decisions:
 import torch
 import torch.nn as nn
 
-from .base import SNNOperator
+from .base import SNNOperator, CompositeSNNModule
 from .neurons import _sequential_multistep
 
 
-class SConv2d(nn.Module, SNNOperator):
+class SConv2d(CompositeSNNModule):
     """Spike-in → LLConv2d → IFNeuron → spike-out.
 
     Args:
         conv: LLConv2d instance (connection layer).
         neuron: IFNeuron instance (spiking neuron).
     """
-
-    participates_in_early_stop = False
 
     def __init__(self, conv, neuron):
         super().__init__()
@@ -40,20 +38,14 @@ class SConv2d(nn.Module, SNNOperator):
     def forward_multistep(self, x_seq):
         return _sequential_multistep(self, x_seq)
 
-    def reset(self):
-        self.conv.reset()
-        self.neuron.reset()
 
-
-class SLinear(nn.Module, SNNOperator):
+class SLinear(CompositeSNNModule):
     """Spike-in → LLLinear → IFNeuron → spike-out.
 
     Args:
         linear: LLLinear instance (connection layer).
         neuron: IFNeuron instance (spiking neuron).
     """
-
-    participates_in_early_stop = False
 
     def __init__(self, linear, neuron):
         super().__init__()
@@ -65,7 +57,3 @@ class SLinear(nn.Module, SNNOperator):
 
     def forward_multistep(self, x_seq):
         return _sequential_multistep(self, x_seq)
-
-    def reset(self):
-        self.linear.reset()
-        self.neuron.reset()

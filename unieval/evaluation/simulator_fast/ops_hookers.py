@@ -38,14 +38,14 @@ from ...registry import Registry
 # SYOPS counting hooks
 # ---------------------------------------------------------------------------
 
-def empty_syops_counter_hook(module, input, output):
-    module.__syops__ += np.array([0.0, 0.0, 0.0, 0.0])
+def empty_syops_hardware_fast_hook(module, input, output):
+    module.__syops__ += np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) # 六个数分别为： #SOP， #Spike，#F_out, #Weight, #membrane, #tracer
 
 
-def conv_syops_counter_hook(module, input, output):
+def conv_syops_hardware_fast_hook(module, input, output):
     inp = input[0]
+
     spike, rate, spkhistc = spike_rate(inp)
-    # print("conv rate", rate)
 
     batch_size = inp.shape[0]
     output_dims = list(output.shape[2:])
@@ -62,21 +62,22 @@ def conv_syops_counter_hook(module, input, output):
     bias_syops = out_channels * active_elements_count if module.bias is not None else 0
     overall_syops = overall_conv_syops + bias_syops
 
-    force_ac = getattr(module, "__snn_ac_forced__", False)
-    module.__syops__[0] += int(overall_syops)
-    if force_ac or spike:
-        module.__syops__[1] += int(overall_syops) * rate
-    else:
-        module.__syops__[2] += int(overall_syops)
-    module.__syops__[3] += rate * 100
+    module.__syops__[0] += int(overall_syops * rate)
+    module.__syops__[1] += int(np.prod(inp.shape) * rate)
+    module.__syops__[2] += out_channels // groups
+    module.__syops__[3] += int(np.prod(kernel_dims)) * in_channels * filters_per_channel
+    module.__syops__[4] += 0
+    module.__syops__[5] += 0
+
     module.__spkhistc__ = spkhistc
 
 
-def linear_syops_counter_hook(module, input, output):
+def linear_syops_hardware_fast_hook(module, input, output):
     inp = input[0]
     spike, rate, spkhistc = spike_rate(inp)
 
     batch_size = inp.shape[0]
+    input_last_dim = inp.shape[-1]
     output_last_dim = output.shape[-1]
     bias_syops = output_last_dim * batch_size if module.bias is not None else 0
     overall_syops = int(np.prod(inp.shape) * output_last_dim + bias_syops)
@@ -87,129 +88,115 @@ def linear_syops_counter_hook(module, input, output):
     # from norms but these map to AC on neuromorphic hardware.
     force_ac = getattr(module, "__snn_ac_forced__", False)
 
-    module.__syops__[0] += overall_syops
-    if force_ac or spike:
-        module.__syops__[1] += overall_syops * rate
-    else:
-        module.__syops__[2] += overall_syops
-    module.__syops__[3] += rate * 100
+    #SOP， #Spike，#F_out, #Weight, #membrane, #tracer
+    module.__syops__[0] += int(overall_syops * rate)
+    module.__syops__[1] += int(np.prod(inp.shape) * rate)
+    module.__syops__[2] += output_last_dim
+    module.__syops__[3] += int(input_last_dim * output_last_dim)
+    module.__syops__[4] += 0
+    module.__syops__[5] += 0
+
     module.__spkhistc__ = spkhistc
 
 
-def IF_syops_counter_hook(module, input, output):
+def IF_syops_hardware_fast_hook(module, input, output):
     active_elements_count = input[0].numel()
+    #SOP， #Spike，#F_out, #Weight, #membrane, #tracer
     module.__syops__[0] += int(active_elements_count)
-    spike, rate, spkhistc = spike_rate(output)
-    module.__syops__[1] += int(active_elements_count)
-    module.__syops__[3] += rate * 100
-    module.__spkhistc__ = spkhistc
+    module.__syops__[1] += 0
+    module.__syops__[2] += 1
+    module.__syops__[3] += 0
+    module.__syops__[4] += int(active_elements_count)
+    module.__syops__[5] += 0
+    module.__spkhistc__ = True
 
-def STBIF_syops_counter_hook(module, input, output):
+def STBIF_syops_hardware_fast_hook(module, input, output):
     # 考虑Spike tracer，memrbane和spike tracer的数量相同，因此直接乘2
     active_elements_count = input[0].numel()
+    #SOP， #Spike，#F_out, #Weight, #membrane, #tracer
     module.__syops__[0] += int(active_elements_count) * 2
-    spike, rate, spkhistc = spike_rate(output)
-    module.__syops__[1] += int(active_elements_count) * 2
-    module.__syops__[3] += rate * 100
-    module.__spkhistc__ = spkhistc
+    module.__syops__[1] += 0
+    module.__syops__[2] += 1
+    module.__syops__[3] += 0
+    module.__syops__[4] += int(active_elements_count)
+    module.__syops__[5] += int(active_elements_count)
+    module.__spkhistc__ = True
 
+def pool_syops_hardware_fast_hook(module, input, output):
+    #SOP， #Spike，#F_out, #Weight, #membrane, #tracer
 
-
-def relu_syops_counter_hook(module, input, output):
-    active_elements_count = output.numel()
-    module.__syops__[0] += int(active_elements_count)
-    spike, rate, _ = spike_rate(output)
-    if spike:
-        module.__syops__[1] += int(active_elements_count) * rate
-    else:
-        module.__syops__[2] += int(active_elements_count)
-    module.__syops__[3] += rate * 100
-
-
-def pool_syops_counter_hook(module, input, output):
     inp = input[0]
+
     spike, rate, spkhistc = spike_rate(inp)
-    module.__syops__[0] += int(np.prod(inp.shape))
-    if spike:
-        module.__syops__[1] += int(np.prod(inp.shape)) * rate
-    else:
-        module.__syops__[2] += int(np.prod(inp.shape))
-    module.__syops__[3] += rate * 100
+
+    batch_size = inp.shape[0]
+    output_dims = list(output.shape[2:])
+    in_channels = out_channels = groups = inp.shape[-1]
+    kernel_dims = (module.kernel_size, module.kernel_size)
+
+    filters_per_channel = out_channels // groups
+    conv_per_position_syops = int(np.prod(kernel_dims)) * in_channels * filters_per_channel
+    active_elements_count = batch_size * int(np.prod(output_dims))
+    overall_syops = conv_per_position_syops * active_elements_count
+
+    module.__syops__[0] += int(overall_syops * rate)
+    module.__syops__[1] += int(np.prod(inp.shape) * rate)
+    module.__syops__[2] += out_channels // groups
+    module.__syops__[3] += 0
+    module.__syops__[4] += 0
+    module.__syops__[5] += 0
+
     module.__spkhistc__ = spkhistc
 
+def multihead_attention_hardware_fast_hook(multihead_attention_module, input, output):
+    #SOP， #Spike，#F_out, #Weight, #membrane, #tracer
+    x1_t,x2_t,x1_sum_t,x2_sum_t = input[0],input[1],input[2],input[3]
+    spike1, rate1, spkhistc1 = spike_rate(x1_t)
+    spike2, rate2, spkhistc2 = spike_rate(x2_t)
+    
+    batchsize1, num_head1, dim11, dim12 = x1_t.shape
+    batchsize2, num_head2, dim21, dim22 = x1_t.shape
+    
+    overall_syops = 0
+    overall_syops_sparsity = 0
+    
+    overall_syops = 2 * batchsize1 * num_head1 * dim11 * dim22 * dim12 + batchsize1 * num_head1 * dim11 * dim22
+    overall_syops_sparsity = batchsize1 * num_head1 * dim11 * dim22 * dim12 * (rate1 + rate2) + batchsize1 * num_head1 * dim11 * dim22
+    
+    multihead_attention_module.__syops__[0] += int(overall_syops_sparsity)
+    multihead_attention_module.__syops__[1] += int(x1_t * rate1 + x2_t * rate2)
+    
+    # 对于不对称的attention算子，例如attn_weight和value乘积，f_ont需要看spike是从哪边来的，这边只能勉强根据spike rate算一个加权平均值
+    multihead_attention_module.__syops__[2] += batchsize1 * num_head2 * (dim22*rate1 + dim11*rate2) / (rate1 + rate2) 
+    multihead_attention_module.__syops__[3] += 0
+    multihead_attention_module.__syops__[4] += batchsize1 * num_head1 * dim11 * dim22
+    multihead_attention_module.__syops__[5] += batchsize1 * num_head1 * dim11 * dim22
+    
+    multihead_attention_module.__spkhistc__ = spkhistc1
+    
 
-def bn_syops_counter_hook(module, input, output):
-    inp = input[0]
-    spike, rate, spkhistc = spike_rate(inp)
-    batch_syops = np.prod(inp.shape)
-    if module.affine:
-        batch_syops *= 2
-    module.__syops__[0] += int(batch_syops)
-    if spike:
-        module.__syops__[1] += int(batch_syops) * rate
-    else:
-        module.__syops__[2] += int(batch_syops)
-    module.__syops__[3] += rate * 100
-    module.__spkhistc__ = spkhistc
-
-
-def ln_syops_counter_hook(module, input, output):
-    inp = input[0]
-    spike, rate, spkhistc = spike_rate(inp)
-    batch_syops = np.prod(inp.shape)
-    if module.elementwise_affine:
-        batch_syops *= 2
-    module.__syops__[0] += int(batch_syops)
-    if spike:
-        module.__syops__[1] += int(batch_syops) * rate
-    else:
-        module.__syops__[2] += int(batch_syops)
-    module.__syops__[3] += rate * 100
-    module.__spkhistc__ = spkhistc
-
-
-def multihead_attention_counter_hook(module, input, output):
-    q = k = v = input[0]
-    batch_size = q.shape[0]
-    qdim = q.shape[2]
-    qlen = q.shape[1]
-    klen = k.shape[1]
-    vlen = v.shape[1]
-    vdim = qdim
-    num_heads = module.num_heads
-
-    syops = qlen * qdim  # Q scaling
-    syops += (qlen * qdim * qdim + klen * qdim * qdim + vlen * vdim * vdim)  # projections
-    qk_head_dim = qdim // num_heads
-    v_head_dim = vdim // num_heads
-    head_syops = (qlen * klen * qk_head_dim + qlen * klen + qlen * klen * v_head_dim)
-    syops += num_heads * head_syops
-    syops += qlen * vdim * (vdim + 1)
-    syops *= batch_size
-
-    module.__syops__[0] += int(syops)
-    module.__syops__[2] += int(syops)
-
-
-def spiking_norm_syops_counter_hook(module, input, output):
+def spiking_norm_syops_hardware_fast_hook(module, input, output):
     """Hook for Spiking_RMSNorm, Spiking_UnifiedClipNorm, Spiking_LayerNorm.
 
     These accumulate input and apply norm to the accumulator, then output
     a differential. The ops are element-wise (affine transform + norm).
     """
+    #SOP， #Spike，#F_out, #Weight, #membrane, #tracer
+    
     inp = input[0]
     spike, rate, spkhistc = spike_rate(inp)
     batch_syops = int(np.prod(inp.shape)) * 2  # multiply + add for affine
-    module.__syops__[0] += batch_syops
-    if spike:
-        module.__syops__[1] += batch_syops * rate
-    else:
-        module.__syops__[2] += batch_syops
-    module.__syops__[3] += rate * 100
+    
+    module.__syops__[0] += int(batch_syops * rate)
+    module.__syops__[1] += int(np.prod(inp.shape) * rate)
+    module.__syops__[2] += 1
+    module.__syops__[3] += 0
+    module.__syops__[4] += 0
+    module.__syops__[5] += 0
     module.__spkhistc__ = spkhistc
 
 
-def spiking_activation_syops_counter_hook(module, input, output):
+def spiking_activation_syops_hardware_fast_hook(module, input, output):
     """Hook for Spiking_SiLU, Spiking_UniAffineAct.
 
     Activation ops: element-wise on accumulated input.
@@ -217,111 +204,99 @@ def spiking_activation_syops_counter_hook(module, input, output):
     inp = input[0]
     spike, rate, spkhistc = spike_rate(inp)
     active_elements = inp.numel()
-    module.__syops__[0] += active_elements
-    if spike:
-        module.__syops__[1] += int(active_elements * rate)
-    else:
-        module.__syops__[2] += active_elements
-    module.__syops__[3] += rate * 100
+    module.__syops__[0] += int(active_elements * rate)
+    module.__syops__[1] += int(np.prod(inp.shape) * rate)
+    module.__syops__[2] += 1
+    module.__syops__[3] += 0
+    module.__syops__[4] += 0
+    module.__syops__[5] += 0
     module.__spkhistc__ = spkhistc
 
-def spiking_residual_syops_counter_hook(module, input, output):
+def spiking_residual_syops_hardware_fast_hook(module, input, output):
     inp1 = input[0]
     inp2 = input[1]
     spike1, rate1, spkhistc1 = spike_rate(inp1)
     spike2, rate2, spkhistc2 = spike_rate(inp2)
-    
+       
     active_elements = 2 * inp1.numel()
-    module.__syops__[0] += active_elements
-    if spike1 and spike2:
-        module.__syops__[1] += int(inp1.numel() * rate1 + inp2.numel() * rate2)
-    else:
-        module.__syops__[2] += active_elements
-    # Use a bounded firing-rate metric in [0, 1]:
-    # residual add has two inputs; we take max(rate1, rate2) as an "effective"
-    # activity indicator to keep firing_rate interpretable and <= 100%.
-    module.__syops__[3] += max(rate1, rate2) * 100
+    module.__syops__[0] += int(active_elements * rate1 + active_elements * rate2)
+    module.__syops__[1] += int(inp1.numel() * rate1 + inp2.numel() * rate2)
+    module.__syops__[2] += 1
+    module.__syops__[3] += 0
+    module.__syops__[4] += 0
+    module.__syops__[5] += 0
     module.__spkhistc__ = spkhistc1 and spkhistc2
-
 
 # ---------------------------------------------------------------------------
 # Default module mapping
 # ---------------------------------------------------------------------------
 
-def _build_default_modules_mapping():
+def _build_default_modules_hardware_fast_mapping():
     """Build the default mapping of module types to SYOPS hooks."""
     mapping = {
-        nn.Conv1d: conv_syops_counter_hook,
-        nn.Conv2d: conv_syops_counter_hook,
-        QuanConv2d: conv_syops_counter_hook,
-        QuanConv2dFuseBN: conv_syops_counter_hook,
-        nn.Conv3d: conv_syops_counter_hook,
-        nn.ReLU: relu_syops_counter_hook,
-        MyQuan: relu_syops_counter_hook,
-        nn.PReLU: relu_syops_counter_hook,
-        nn.ELU: relu_syops_counter_hook,
-        nn.LeakyReLU: relu_syops_counter_hook,
-        nn.ReLU6: relu_syops_counter_hook,
-        nn.MaxPool1d: pool_syops_counter_hook,
-        nn.AvgPool1d: pool_syops_counter_hook,
-        nn.AvgPool2d: pool_syops_counter_hook,
-        nn.MaxPool2d: pool_syops_counter_hook,
-        nn.MaxPool3d: pool_syops_counter_hook,
-        nn.AvgPool3d: pool_syops_counter_hook,
-        nn.AdaptiveMaxPool1d: pool_syops_counter_hook,
-        nn.AdaptiveAvgPool1d: pool_syops_counter_hook,
-        nn.AdaptiveMaxPool2d: pool_syops_counter_hook,
-        nn.AdaptiveAvgPool2d: pool_syops_counter_hook,
-        nn.AdaptiveMaxPool3d: pool_syops_counter_hook,
-        nn.AdaptiveAvgPool3d: pool_syops_counter_hook,
-        nn.BatchNorm1d: bn_syops_counter_hook,
-        nn.BatchNorm2d: bn_syops_counter_hook,
-        nn.BatchNorm3d: bn_syops_counter_hook,
-        nn.LayerNorm: ln_syops_counter_hook,
-        IFNeuron: IF_syops_counter_hook,
-        nn.InstanceNorm1d: bn_syops_counter_hook,
-        nn.InstanceNorm2d: bn_syops_counter_hook,
-        nn.InstanceNorm3d: bn_syops_counter_hook,
-        nn.GroupNorm: bn_syops_counter_hook,
-        nn.Linear: linear_syops_counter_hook,
-        QuanLinear: linear_syops_counter_hook,
-        nn.Upsample: empty_syops_counter_hook,
-        nn.ConvTranspose1d: conv_syops_counter_hook,
-        nn.ConvTranspose2d: conv_syops_counter_hook,
-        nn.ConvTranspose3d: conv_syops_counter_hook,
-        nn.MultiheadAttention: multihead_attention_counter_hook,
-        Attention: multihead_attention_counter_hook,
-        QAttention: multihead_attention_counter_hook,
+        nn.Conv1d: conv_syops_hardware_fast_hook,
+        nn.Conv2d: conv_syops_hardware_fast_hook,
+        QuanConv2d: conv_syops_hardware_fast_hook,
+        QuanConv2dFuseBN: conv_syops_hardware_fast_hook,
+        nn.Conv3d: conv_syops_hardware_fast_hook,
+        nn.ReLU: spiking_activation_syops_hardware_fast_hook,
+        MyQuan: spiking_activation_syops_hardware_fast_hook,
+        nn.PReLU: spiking_activation_syops_hardware_fast_hook,
+        nn.ELU: spiking_activation_syops_hardware_fast_hook,
+        nn.LeakyReLU: spiking_activation_syops_hardware_fast_hook,
+        nn.ReLU6: spiking_activation_syops_hardware_fast_hook,
+        nn.MaxPool1d: pool_syops_hardware_fast_hook,
+        nn.AvgPool1d: pool_syops_hardware_fast_hook,
+        nn.AvgPool2d: pool_syops_hardware_fast_hook,
+        nn.MaxPool2d: pool_syops_hardware_fast_hook,
+        nn.MaxPool3d: pool_syops_hardware_fast_hook,
+        nn.AvgPool3d: pool_syops_hardware_fast_hook,
+        nn.AdaptiveMaxPool1d: pool_syops_hardware_fast_hook,
+        nn.AdaptiveAvgPool1d: pool_syops_hardware_fast_hook,
+        nn.AdaptiveMaxPool2d: pool_syops_hardware_fast_hook,
+        nn.AdaptiveAvgPool2d: pool_syops_hardware_fast_hook,
+        nn.AdaptiveMaxPool3d: pool_syops_hardware_fast_hook,
+        nn.AdaptiveAvgPool3d: pool_syops_hardware_fast_hook,
+        IFNeuron: IF_syops_hardware_fast_hook,
+        nn.Linear: linear_syops_hardware_fast_hook,
+        QuanLinear: linear_syops_hardware_fast_hook,
+        nn.Upsample: empty_syops_hardware_fast_hook,
+        nn.ConvTranspose1d: conv_syops_hardware_fast_hook,
+        nn.ConvTranspose2d: conv_syops_hardware_fast_hook,
+        nn.ConvTranspose3d: conv_syops_hardware_fast_hook,
+        nn.MultiheadAttention: multihead_attention_hardware_fast_hook,
+        Attention: multihead_attention_hardware_fast_hook,
+        QAttention: multihead_attention_hardware_fast_hook,
         # SNN layer wrappers (delegates to inner Linear/Conv2d but needs hook for spike rate)
-        LLLinear: empty_syops_counter_hook,    # inner nn.Linear already counted
-        LLConv2d: empty_syops_counter_hook,    # inner nn.Conv2d already counted
+        LLLinear: empty_syops_hardware_fast_hook,    # inner nn.Linear already counted
+        LLConv2d: empty_syops_hardware_fast_hook,    # inner nn.Conv2d already counted
         # ResNet:
-        SpikeResidualAdd: spiking_residual_syops_counter_hook,
-        SpikeConv2dFuseBN: conv_syops_counter_hook,
-        SpikeLinear: linear_syops_counter_hook,
-        SpikeInferAvgPool: empty_syops_counter_hook, # (sub-modules already counted)
+        SpikeResidualAdd: spiking_residual_syops_hardware_fast_hook,
+        SpikeConv2dFuseBN: conv_syops_hardware_fast_hook,
+        SpikeLinear: linear_syops_hardware_fast_hook,
+        SpikeInferAvgPool: empty_syops_hardware_fast_hook, # (sub-modules already counted)
 
         # Decoder SNN operators
-        ORIIFNeuron: IF_syops_counter_hook,
-        STBIFNeuron: STBIF_syops_counter_hook,
-        PTQQuan: relu_syops_counter_hook,
-        Spiking_RMSNorm: spiking_norm_syops_counter_hook,
-        Spiking_UnifiedClipNorm: spiking_norm_syops_counter_hook,
-        Spiking_SiLU: spiking_activation_syops_counter_hook,
-        Spiking_UniAffineAct: spiking_activation_syops_counter_hook,
+        ORIIFNeuron: IF_syops_hardware_fast_hook,
+        STBIFNeuron: STBIF_syops_hardware_fast_hook,
+        PTQQuan: spiking_activation_syops_hardware_fast_hook,
+        Spiking_RMSNorm: spiking_norm_syops_hardware_fast_hook,
+        Spiking_UnifiedClipNorm: spiking_norm_syops_hardware_fast_hook,
+        Spiking_SiLU: spiking_activation_syops_hardware_fast_hook,
+        Spiking_UniAffineAct: spiking_activation_syops_hardware_fast_hook,
         # Container modules: use empty hook (sub-modules already counted)
-        Spiking_SwiGLUMlp: empty_syops_counter_hook,
-        Spiking_ReGLUMlp: empty_syops_counter_hook,
+        Spiking_SwiGLUMlp: empty_syops_hardware_fast_hook,
+        Spiking_ReGLUMlp: empty_syops_hardware_fast_hook,
         # Composite SNN operators (sub-modules already counted)
-        SConv2d: empty_syops_counter_hook,
-        SLinear: empty_syops_counter_hook,
+        SConv2d: empty_syops_hardware_fast_hook,
+        SLinear: empty_syops_hardware_fast_hook,
         # Composite QANN operators (sub-modules already counted if eval at QANN stage)
-        QCompConv2d: empty_syops_counter_hook,
-        QCompLinear: empty_syops_counter_hook,
-        QNorm: empty_syops_counter_hook,
+        QCompConv2d: empty_syops_hardware_fast_hook,
+        QCompLinear: empty_syops_hardware_fast_hook,
+        QNorm: empty_syops_hardware_fast_hook,
     }
     if hasattr(nn, "GELU"):
-        mapping[nn.GELU] = relu_syops_counter_hook
+        mapping[nn.GELU] = spiking_activation_syops_hardware_fast_hook
     return mapping
 
 
@@ -329,7 +304,7 @@ def _build_default_modules_mapping():
 # OpsCounter
 # ---------------------------------------------------------------------------
 
-class OpsCounter:
+class OpsCounterFast:
     """Hook-based synaptic operations counter.
 
     Registers forward hooks on supported modules to count operations
@@ -344,7 +319,7 @@ class OpsCounter:
     """
 
     def __init__(self, custom_hooks=None, time_step=15):
-        self.modules_mapping = _build_default_modules_mapping()
+        self.modules_mapping = _build_default_modules_hardware_fast_mapping()
         if custom_hooks:
             self.modules_mapping.update(custom_hooks)
         self._handles = []
@@ -370,13 +345,6 @@ class OpsCounter:
         self._reset_counters(model)
         self._add_batch_counter(model)
 
-        # Mark sub-modules of SNN wrappers as force-AC
-        for module in model.modules():
-            if isinstance(module, (LLLinear, LLConv2d)):
-                for child in module.modules():
-                    if child is not module:
-                        child.__snn_ac_forced__ = True
-
         for module in model.modules():
             if self.is_supported(module):
                 handle = module.register_forward_hook(
@@ -400,7 +368,7 @@ class OpsCounter:
         model.__times_counter__ = 0
         for module in model.modules():
             if self.is_supported(module):
-                module.__syops__ = np.array([0.0, 0.0, 0.0, 0.0])
+                module.__syops__ = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
                 module.__params__ = sum(
                     p.numel() for p in module.parameters() if p.requires_grad
                 )
@@ -437,7 +405,7 @@ class OpsCounter:
         """Recursively accumulate SYOPS from module tree."""
         if self.is_supported(module):
             return module.__syops__
-        total = np.array([0.0, 0.0, 0.0, 0.0])
+        total = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         for child in module.children():
             total += self._accumulate(child)
         return total
@@ -463,6 +431,6 @@ class OpsCounter:
                 else:
                     syops[3] /= times_counter
                     
-                print("times_counter",times_counter)
+                # print("times_counter",times_counter)
                 stats.append((name, module, syops))
         return stats
