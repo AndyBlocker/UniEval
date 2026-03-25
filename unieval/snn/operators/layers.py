@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch as t
 
 from .base import SNNOperator
+from .accumulating_transform import AccumulatingTransform
 from .neurons import STBIFNeuron
 from unieval.qann.operators import QuanConv2dFuseBN, QuanLinear, QuanAvgPool, AdditionQuan
 from unieval.qann.quantization import LsqQuan, LsqQuanAct
@@ -183,54 +184,17 @@ class LLLinear(nn.Module, SNNOperator):
         return result
 
 
-class Spiking_LayerNorm(nn.Module, SNNOperator):
+class Spiking_LayerNorm(AccumulatingTransform):
     """Spiking LayerNorm: accumulates input, outputs differential normalized values.
 
     Args:
         dim: Normalized shape dimension.
     """
 
-    participates_in_early_stop = False
-
     def __init__(self, dim):
         super().__init__()
         self.layernorm = nn.LayerNorm(dim)
-        self.X = 0.0
-        self.Y_pre = None
-
-    def reset(self):
-        self.X = 0.0
-        self.Y_pre = None
-
-    def forward(self, input):
-        self.X = self.X + input
-        Y = self.layernorm(self.X)
-        if self.Y_pre is not None:
-            Y_pre = self.Y_pre.detach().clone()
-        else:
-            Y_pre = 0.0
-        self.Y_pre = Y
-        return Y - Y_pre
-
-    def forward_multistep(self, x_seq):
-        """Vectorized multi-step: cumsum + layernorm + diff.
-
-        Args:
-            x_seq: [T, B, N, D]
-        Returns:
-            output: [T, B, N, D]
-        """
-        X_cum = x_seq.cumsum(dim=0) + self.X
-        Y = self.layernorm(X_cum)
-        if self.Y_pre is not None:
-            Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
-        else:
-            Y_prev = torch.zeros_like(Y[:1])
-        Y_shifted = torch.cat([Y_prev, Y[:-1]], dim=0)
-        output = Y - Y_shifted
-        self.X = X_cum[-1]
-        self.Y_pre = Y[-1]
-        return output
+        self._transform_attr = "layernorm"
 
 
 class SpikeMaxPooling(nn.Module, SNNOperator):

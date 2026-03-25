@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .base import SNNOperator
+from .base import SNNOperator, CompositeSNNModule
 from .neurons import IFNeuron, _sequential_multistep
 
 
@@ -74,7 +74,7 @@ class spiking_softmax(nn.Module, SNNOperator):
         return output
 
 
-class SAttention(nn.Module, SNNOperator):
+class SAttention(CompositeSNNModule):
     """Spiking multi-head self-attention.
 
     Replaces QAttention with temporal spiking dynamics using IFNeurons
@@ -90,8 +90,6 @@ class SAttention(nn.Module, SNNOperator):
         level: Quantization level.
         is_softmax: Whether to use spiking softmax.
     """
-
-    participates_in_early_stop = False
 
     def __init__(
         self,
@@ -141,20 +139,7 @@ class SAttention(nn.Module, SNNOperator):
             self.Ssoftmax = spiking_softmax()
         self.T = 0
 
-    def reset(self):
-        self.q_IF.reset()
-        self.k_IF.reset()
-        self.v_IF.reset()
-        self.attn_IF.reset()
-        self.after_attn_IF.reset()
-        self.proj_IF.reset()
-        if self.is_softmax:
-            self.Ssoftmax.reset()
-        # qkv and proj have reset() only after conversion to LLLinear
-        if hasattr(self.qkv, "reset"):
-            self.qkv.reset()
-        if hasattr(self.proj, "reset"):
-            self.proj.reset()
+    def reset_local_state(self):
         self.T = 0
 
     def forward(self, x):

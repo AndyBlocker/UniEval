@@ -1,7 +1,7 @@
 """SNNConverter: rule-driven recursive ANN-to-SNN conversion engine."""
 
 import warnings
-from typing import List, Optional
+from typing import Callable, Dict, List, Optional, Type
 
 import torch.nn as nn
 
@@ -14,6 +14,42 @@ _CONVERT_SKIP_WARN_TYPES = (
     nn.MaxPool2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d,
     nn.Flatten, nn.Softmax, nn.Tanh, nn.Sigmoid,
 )
+
+# ---------------------------------------------------------------------------
+# Typed dispatch: exact-type registry for QANN -> SNN conversion
+# ---------------------------------------------------------------------------
+# O(1) lookup by type(child).  Checked before ConversionRule iteration.
+# Use @snn_convertible(QANNType) to register.
+
+_TYPED_CONVERTERS: Dict[Type[nn.Module], Callable] = {}
+
+
+def snn_convertible(qann_type: Type[nn.Module]):
+    """Decorator: register a QANN type -> SNN conversion function.
+
+    The decorated function must have the same signature as a ConversionRule
+    convert_fn: ``(name, child, parent, **kwargs) -> None``.
+
+    Typed dispatch is checked before rule-based matching in SNNConverter.
+    It uses exact type matching (not isinstance), so subclasses are not
+    caught unless explicitly registered.
+
+    Example::
+
+        @snn_convertible(QQwen3Attention)
+        def _convert_qwen3_attn(name, child, parent, level, neuron_type, **kw):
+            ...
+    """
+    def decorator(fn: Callable) -> Callable:
+        if qann_type in _TYPED_CONVERTERS:
+            warnings.warn(
+                f"snn_convertible: overwriting existing converter for "
+                f"{qann_type.__name__}",
+                stacklevel=2,
+            )
+        _TYPED_CONVERTERS[qann_type] = fn
+        return fn
+    return decorator
 
 
 class ConversionContext:
@@ -72,6 +108,13 @@ class SNNConverter:
     def _convert_recursive(self, model: nn.Module, **kwargs):
         children = list(model.named_children())
         for name, child in children:
+            # Fast path: typed dispatch (exact type match, O(1))
+            converter_fn = _TYPED_CONVERTERS.get(type(child))
+            if converter_fn is not None:
+                converter_fn(name, child, model, **kwargs)
+                continue
+
+            # Slow path: rule-based matching (priority order)
             matched = False
             for rule in self.rules:
                 if rule.match_fn(name, child, model):

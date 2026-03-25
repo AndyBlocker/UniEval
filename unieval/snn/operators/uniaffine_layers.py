@@ -8,60 +8,25 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .base import SNNOperator
+from .base import SNNOperator, CompositeSNNModule
+from .accumulating_transform import AccumulatingTransform
 from .neurons import _sequential_multistep
 
 
-class Spiking_UnifiedClipNorm(nn.Module, SNNOperator):
+class Spiking_UnifiedClipNorm(AccumulatingTransform):
     """Spiking UnifiedClipNorm: accumulate input, apply uclip, output differential.
-
-    Follows the Spiking_LayerNorm pattern:
-        X_acc += input
-        Y = gamma * clamp(alpha * X_acc + beta, clip_min, clip_max)
-        output = Y - Y_pre
 
     Args:
         uclip: The original UnifiedClipNorm module.
     """
 
-    participates_in_early_stop = False
-
     def __init__(self, uclip):
         super().__init__()
         self.uclip = uclip
-        self.X = 0.0
-        self.Y_pre = None
-
-    def reset(self):
-        self.X = 0.0
-        self.Y_pre = None
-
-    def forward(self, input):
-        self.X = self.X + input
-        Y = self.uclip(self.X)
-        if self.Y_pre is not None:
-            Y_pre = self.Y_pre.detach().clone()
-        else:
-            Y_pre = 0.0
-        self.Y_pre = Y
-        return Y - Y_pre
-
-    def forward_multistep(self, x_seq):
-        """Vectorized multi-step: cumsum + uclip + diff."""
-        X_cum = x_seq.cumsum(dim=0) + self.X
-        Y = self.uclip(X_cum)
-        if self.Y_pre is not None:
-            Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
-        else:
-            Y_prev = torch.zeros_like(Y[:1])
-        Y_shifted = torch.cat([Y_prev, Y[:-1]], dim=0)
-        output = Y - Y_shifted
-        self.X = X_cum[-1]
-        self.Y_pre = Y[-1]
-        return output
+        self._transform_attr = "uclip"
 
 
-class Spiking_ReGLUMlp(nn.Module, SNNOperator):
+class Spiking_ReGLUMlp(CompositeSNNModule):
     """Spiking ReGLU MLP with temporal multi1() decomposition.
 
     ReGLU: out = down_proj(relu(gate_proj(x)) * up_proj(x))
@@ -78,8 +43,6 @@ class Spiking_ReGLUMlp(nn.Module, SNNOperator):
         mlp: The converted ReGLUMlp (with LLLinear/IFNeuron/Identity sub-modules).
     """
 
-    participates_in_early_stop = False
-
     def __init__(self, mlp):
         super().__init__()
         self.gate_proj = mlp.gate_proj
@@ -89,12 +52,9 @@ class Spiking_ReGLUMlp(nn.Module, SNNOperator):
         self.gate_acc = 0.0
         self.up_acc = 0.0
 
-    def reset(self):
+    def reset_local_state(self):
         self.gate_acc = 0.0
         self.up_acc = 0.0
-        for m in self.modules():
-            if m is not self and isinstance(m, SNNOperator):
-                m.reset()
 
     def forward(self, x):
         """Single timestep forward with temporal product decomposition.

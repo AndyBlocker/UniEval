@@ -9,107 +9,36 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .base import SNNOperator
+from .base import SNNOperator, CompositeSNNModule
+from .accumulating_transform import AccumulatingTransform
 from .neurons import _sequential_multistep
 
 
-class Spiking_RMSNorm(nn.Module, SNNOperator):
+class Spiking_RMSNorm(AccumulatingTransform):
     """Spiking RMSNorm: accumulate input, apply RMSNorm, output differential.
-
-    Follows the Spiking_LayerNorm pattern:
-        X_acc += input
-        Y = RMSNorm(X_acc)
-        output = Y - Y_pre
 
     Args:
         rmsnorm: The original RMSNorm module.
     """
 
-    participates_in_early_stop = False
-
     def __init__(self, rmsnorm):
         super().__init__()
         self.rmsnorm = rmsnorm
-        self.X = 0.0
-        self.Y_pre = None
-
-    def reset(self):
-        self.X = 0.0
-        self.Y_pre = None
-
-    def forward(self, input):
-        self.X = self.X + input
-        Y = self.rmsnorm(self.X)
-        if self.Y_pre is not None:
-            Y_pre = self.Y_pre.detach().clone()
-        else:
-            Y_pre = 0.0
-        self.Y_pre = Y
-        return Y - Y_pre
-
-    def forward_multistep(self, x_seq):
-        """Vectorized: cumsum + rmsnorm + diff."""
-        X_cum = x_seq.cumsum(dim=0) + self.X
-        Y = self.rmsnorm(X_cum)
-        if self.Y_pre is not None:
-            Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
-        else:
-            Y_prev = torch.zeros_like(Y[:1])
-        Y_shifted = torch.cat([Y_prev, Y[:-1]], dim=0)
-        output = Y - Y_shifted
-        self.X = X_cum[-1]
-        self.Y_pre = Y[-1]
-        return output
+        self._transform_attr = "rmsnorm"
 
 
-class Spiking_SiLU(nn.Module, SNNOperator):
+class Spiking_SiLU(AccumulatingTransform):
     """Spiking SiLU: accumulate input, apply SiLU, output differential.
 
     Used for the SwiGLU gate branch in Qwen3 baseline.
-
-    Pattern:
-        X_acc += input
-        Y = silu(X_acc)
-        output = Y - Y_pre
     """
-
-    participates_in_early_stop = False
 
     def __init__(self):
         super().__init__()
-        self.X = 0.0
-        self.Y_pre = None
-
-    def reset(self):
-        self.X = 0.0
-        self.Y_pre = None
-
-    def forward(self, input):
-        self.X = self.X + input
-        Y = F.silu(self.X)
-        if self.Y_pre is not None:
-            Y_pre = self.Y_pre.detach().clone()
-        else:
-            Y_pre = 0.0
-        self.Y_pre = Y
-        return Y - Y_pre
-
-    def forward_multistep(self, x_seq):
-        """Vectorized: cumsum + silu + diff."""
-        X_cum = x_seq.cumsum(dim=0) + self.X
-        Y = F.silu(X_cum)
-        if self.Y_pre is not None:
-            Y_prev = self.Y_pre.detach().clone().unsqueeze(0)
-        else:
-            Y_prev = torch.zeros_like(Y[:1])
-        Y_shifted = torch.cat([Y_prev, Y[:-1]], dim=0)
-        output = Y - Y_shifted
-        self.X = X_cum[-1]
-        self.Y_pre = Y[-1]
-        return output
+        self._transform_fn = F.silu
 
 
-class Spiking_SwiGLUMlp(nn.Module, SNNOperator):
+class Spiking_SwiGLUMlp(CompositeSNNModule):
     """Spiking SwiGLU MLP with temporal multi1() decomposition.
 
     SwiGLU: out = down_proj(silu(gate_proj(x)) * up_proj(x))
@@ -122,8 +51,6 @@ class Spiking_SwiGLUMlp(nn.Module, SNNOperator):
         mlp: The converted SwiGLUMlp (with LLLinear/Spiking_SiLU sub-modules).
     """
 
-    participates_in_early_stop = False
-
     def __init__(self, mlp):
         super().__init__()
         self.gate_proj = mlp.gate_proj
@@ -133,12 +60,9 @@ class Spiking_SwiGLUMlp(nn.Module, SNNOperator):
         self.gate_acc = 0.0
         self.up_acc = 0.0
 
-    def reset(self):
+    def reset_local_state(self):
         self.gate_acc = 0.0
         self.up_acc = 0.0
-        for m in self.modules():
-            if m is not self and isinstance(m, SNNOperator):
-                m.reset()
 
     def forward(self, x):
         """Single timestep with temporal product decomposition.

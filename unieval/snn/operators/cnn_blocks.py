@@ -10,11 +10,11 @@ Design principle: any block whose forward() contains inter-module topology
 
 import torch.nn as nn
 
-from .base import SNNOperator
+from .base import CompositeSNNModule
 from .layers import SpikeConv2dFuseBN, SpikeLinear, SpikeResidualAdd, SpikeInferAvgPool
 
 
-class SpikeBasicBlock(nn.Module, SNNOperator):
+class SpikeBasicBlock(CompositeSNNModule):
     """SNN replacement for BasicBlockCifar.
 
     Converts all internal sub-modules (conv, BN-fused conv, residual add)
@@ -26,8 +26,6 @@ class SpikeBasicBlock(nn.Module, SNNOperator):
         ctx: ConversionContext for layer numbering.
         time_step: Number of SNN timesteps.
     """
-
-    participates_in_early_stop = False
 
     def __init__(self, block, ctx, time_step=64, **kw):
         super().__init__()
@@ -60,8 +58,3 @@ class SpikeBasicBlock(nn.Module, SNNOperator):
         if self.downsample is not None:
             identity = self.downsample(identity)
         return self.residual(out, identity)
-
-    def reset(self):
-        for m in self.modules():
-            if isinstance(m, SNNOperator) and m is not self:
-                m.reset()

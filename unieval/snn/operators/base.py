@@ -1,6 +1,7 @@
 """SNNOperator mixin interface for all SNN operator modules."""
 
 import torch
+import torch.nn as nn
 
 
 class SNNOperator:
@@ -76,3 +77,33 @@ class SNNOperator:
             out = out + out_t
             count += 1
         return out
+
+
+class CompositeSNNModule(nn.Module, SNNOperator):
+    """Base class for container SNN modules (blocks, composites).
+
+    Provides:
+    - participates_in_early_stop = False (children are checked instead)
+    - Automatic reset(): calls reset_local_state() then resets direct children.
+      Uses children() (not modules()) to avoid double-resetting nested composites.
+
+    Subclasses should override reset_local_state() to clear their own state
+    (e.g. gate_acc, T counter). Do NOT clear child state there — that is
+    handled automatically.
+    """
+
+    participates_in_early_stop = False
+
+    def reset(self):
+        self.reset_local_state()
+        for child in self.children():
+            if isinstance(child, SNNOperator):
+                child.reset()
+
+    def reset_local_state(self):
+        """Override to reset module-local state (gate_acc, T, etc.).
+
+        This is called BEFORE children are reset. Should only clear local
+        buffers, not depend on or modify child state.
+        """
+        pass
